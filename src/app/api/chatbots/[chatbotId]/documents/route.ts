@@ -18,9 +18,19 @@ export async function GET(req: Request, { params }: RouteContext) {
     }
 
     const userId = session.user.id;
+    const orgId  = session.user.organizationId;
     const chatbotId = params.chatbotId;
 
+
+
     try {
+        const bot = await prisma.chatbot.findFirst({
+            where: { id: chatbotId, userId, organizationId: orgId },
+            select: { id: true },
+        });
+        if (!bot) {
+            return new NextResponse(JSON.stringify({ error: "Chatbot bulunamadı" }), { status: 404 });
+        }
         const documents = await prisma.document.findMany({
             where: {
                 userId,

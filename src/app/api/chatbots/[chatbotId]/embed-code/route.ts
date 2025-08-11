@@ -14,15 +14,16 @@ export async function GET(req: Request, { params }: Params) {
     if (!session || !session.user?.id) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
     }
-
+    const userId = session.user.id;
+    const orgId  = session.user.organizationId;
     const { chatbotId } = params;
 
     try {
         const chatbot = await prisma.chatbot.findUnique({
             where: {
-                id: chatbotId,
-                userId: session.user.id
-            }
+                id: chatbotId, userId, organizationId: orgId
+            },
+            select: { id: true },
         });
 
         if (!chatbot) {

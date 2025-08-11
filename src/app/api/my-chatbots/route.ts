@@ -8,11 +8,14 @@ export async function GET() {
     if (!session || !session.user?.id) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
     }
+    const userId = session.user.id;
+    const orgId  = session.user.organizationId;
 
     try {
         const chatbots = await prisma.chatbot.findMany({
-            where: { userId: session.user.id },
-            select: { id: true, name: true, createdAt: true }
+            where: { userId, organizationId: orgId },
+            select: { id: true, name: true },
+            orderBy: { createdAt: "desc" },
         });
 
         return NextResponse.json(chatbots);

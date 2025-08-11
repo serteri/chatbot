@@ -7,16 +7,20 @@ import { NextResponse } from "next/server";
 
 export async function GET(req: Request,) {
     const session = await getServerSession(authOptions);
-    if (!session || !session.user?.id) {
+    if (!session?.user?.id) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
     }
 
     const userId = session.user.id;
-
+    const orgId  = session.user.organizationId;
 
     try {
+        const { searchParams } = new URL(req.url);
+        const chatbotId = searchParams.get("chatbotId") || undefined;
         const conversation = await prisma.conversation.findMany({
-            where: { userId: userId },
+            where: { userId,
+                chatbotId,
+                chatbot: { organizationId: orgId }},
             orderBy: { createdAt: 'desc' },
             select: { id: true, title: true, createdAt: true }
         });

@@ -7,19 +7,29 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Chatbot {
-  id            String         @id @default(cuid())
-  userId        String
-  name          String
-  systemPrompt  String?        @db.Text
-  createdAt     DateTime       @default(now())
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversations Conversation[]
-  Document      Document[]
-  mode          PromptMode     @default(STRICT) // Yeni alan
+model Organization {
+  id       String    @id @default(cuid())
+  name     String
+  users    User[]
+  chatbots Chatbot[]
 }
+
+model Chatbot {
+  id             String         @id @default(cuid())
+  userId         String
+  name           String
+  systemPrompt   String?        @db.Text
+  createdAt      DateTime       @default(now())
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+  Document       Document[]
+  mode           PromptMode     @default(STRICT) // Yeni alan
+  Organization   Organization?  @relation(fields: [organizationId], references: [id])
+  organizationId String?
+}
+
 enum PromptMode {
-  STRICT   // sadece belge
+  STRICT // sadece belge
   FLEXIBLE // belge + genel bilgi
 }
 
@@ -64,7 +74,9 @@ model User {
   sessions           Session[]
   documents          Document[]
   conversations      Conversation[] // YENİ: Kullanıcının konuşmaları ilişkisi
-  Chatbot            Chatbot[]
+  Organization       Organization?  @relation(fields: [organizationId], references: [id])
+  organizationId     String?
+  chatbots           Chatbot[]
 }
 
 model VerificationToken {
@@ -107,4 +119,10 @@ model Document {
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade) // 🆕 bu satır
+}
+
+model BotTemplate {
+  id           String @id @default(cuid())
+  name         String
+  systemPrompt String
 }

@@ -4,15 +4,15 @@ import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
+
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user?.id) {
+        return new NextResponse(JSON.stringify({ error: "Yetkisiz" }), { status: 401 });
+    }
+
+    const userId = session.user.id;
+    const orgId  = session.user.organizationId;
     try {
-        // Kullanıcı oturumu kontrolü
-        const session = await getServerSession(authOptions);
-        if (!session || !session.user?.id) {
-            return new NextResponse(JSON.stringify({ error: "Yetkisiz" }), { status: 401 });
-        }
-
-        const userId = session.user.id;
-
         // Gelen veriyi al
         const { name, systemPrompt } = await req.json();
 
@@ -25,6 +25,7 @@ export async function POST(req: Request) {
         const newChatbot = await prisma.chatbot.create({
             data: {
                 userId,
+                organizationId: orgId,
                 name: name.trim(),
                 systemPrompt: systemPrompt?.trim() || "", // boş olabilir
             }
@@ -47,15 +48,17 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
     const session = await getServerSession(authOptions);
+
     if (!session || !session.user?.id) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz" }), { status: 401 });
     }
 
     const userId = session.user.id;
+    const orgId  = session.user.organizationId;  // artık var
 
     try {
         const chatbots = await prisma.chatbot.findMany({
-            where: { userId },
+            where: { userId ,organizationId: orgId,},
             orderBy: { createdAt: 'desc' },
             select: { id: true, name: true },
         });

@@ -8,7 +8,12 @@ interface Chatbot {
     name: string;
 }
 
-export default function ChatbotList({ onSelect,refreshKey  }: { onSelect?: (id: string) => void ; refreshKey?: any; }) {
+type Props = {
+    onSelect?: (id: string) => void;
+    refreshKey?: any;
+};
+
+export default function ChatbotList({ onSelect, refreshKey }: Props) {
     const [chatbots, setChatbots] = useState<Chatbot[]>([]);
     const router = useRouter();
 
@@ -19,6 +24,8 @@ export default function ChatbotList({ onSelect,refreshKey  }: { onSelect?: (id: 
                 const data = await res.json();
                 if (res.ok) {
                     setChatbots(data);
+                } else {
+                    console.error("Chatbot listesi alınamadı:", data);
                 }
             } catch (error) {
                 console.error("Chatbot listesi alınamadı:", error);
@@ -27,8 +34,6 @@ export default function ChatbotList({ onSelect,refreshKey  }: { onSelect?: (id: 
         fetchChatbots();
     }, [refreshKey]);
 
-
-
     return (
         <div className="space-y-2">
             <h2 className="text-xl font-semibold mb-2">Chatbotlarım</h2>
@@ -36,7 +41,13 @@ export default function ChatbotList({ onSelect,refreshKey  }: { onSelect?: (id: 
                 <div
                     key={bot.id}
                     className="p-3 border rounded-lg hover:bg-base-200 cursor-pointer"
-                    onClick={() => onSelect?.(bot.id)}
+                    onClick={() => {
+                        if (onSelect) {
+                            onSelect(bot.id);
+                        } else {
+                            router.push(`/chat?chatbotId=${bot.id}`);
+                        }
+                    }}
                 >
                     {bot.name}
                 </div>

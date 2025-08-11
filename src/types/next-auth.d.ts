@@ -1,29 +1,23 @@
-import { Plan, Role } from "@prisma/client";
-import NextAuth, { DefaultSession } from "next-auth";
-import { JWT } from "next-auth/jwt";
+import { DefaultSession, DefaultUser } from "next-auth";
+import { JWT as DefaultJWT } from "next-auth/jwt";
+import { Role, Plan } from "@prisma/client";
 
 declare module "next-auth" {
-    interface User {
-        id: string;
-        role: Role;
-        plan: Plan;
-    }
     interface Session {
         user: {
             id: string;
-            role: Role;
-            plan: Plan;
+            role?: Role;
+            plan?: Plan;
+            organizationId?: string | null;
         } & DefaultSession["user"];
     }
 }
 
-// JWT token'ının tipini de genişletiyoruz
 declare module "next-auth/jwt" {
     interface JWT {
-        id: string;
-        role: Role;
-        plan: Plan;
+        id?: string;
+        role?: Role;
+        plan?: Plan;
+        organizationId?: string | null;
     }
 }
-
-declare module 'pdfjs-dist/build/pdf.mjs';

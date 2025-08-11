@@ -9,6 +9,7 @@ interface RouteContext {
     }
 }
 
+
 export async function GET(req: Request, { params }: RouteContext) {
     const session = await getServerSession(authOptions);
     if (!session || !session.user?.id) {
@@ -43,5 +44,34 @@ export async function GET(req: Request, { params }: RouteContext) {
     } catch (error) {
         console.error("Konuşma detayı çekerken hata:", error);
         return new NextResponse(JSON.stringify({ error: "Sunucuda bir hata oluştu" }), { status: 500 });
+    }
+}
+
+export async function DELETE(_req: Request, { params }: RouteContext) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+
+    const isAdmin = session.user.role === "ADMIN";
+    const userId  = session.user.id;
+    const orgId   = session.user.organizationId;
+    const { conversationId } = params;
+
+    try {
+        const convo = await prisma.conversation.findFirst({
+            where: { id: conversationId, chatbot: { organizationId: orgId } },
+            select: { id: true, userId: true },
+        });
+        if (!convo) return NextResponse.json({ error: "Konuşma bulunamadı" }, { status: 404 });
+
+        // Kural: ADMIN her zaman silebilir; USER ise sadece kendi konuşmasını silebilir (istersen bunu kapat)
+        if (!isAdmin && convo.userId !== userId) {
+            return NextResponse.json({ error: "İzin yok" }, { status: 403 });
+        }
+
+        await prisma.conversation.delete({ where: { id: conversationId } });
+        return NextResponse.json({ success: true });
+    } catch (err) {
+        console.error("Conversation DELETE hatası:", err);
+        return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });
     }
 }

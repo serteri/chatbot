@@ -32,7 +32,19 @@ export async function POST(req: Request) {
                 // plan ve role alanları şemadaki @default değerlerini alacak
             }
         });
+// 2️⃣ Otomatik organization yarat ve user'ı bağla
+        const org = await prisma.organization.create({
+            data: {
+                name: `${name}'s Organization`,
+                users: { connect: { id: newUser.id } },
+            }
+        });
 
+        // 3️⃣ organizationId'yi user’a serbest bırakıp güncelle
+        await prisma.user.update({
+            where: { id: newUser.id },
+            data: { organizationId: org.id },
+        });
         // Başarılı olursa kullanıcı bilgisini geri döndür (şifre hariç)
         const { hashedPassword: _, ...userWithoutPassword } = newUser;
         return NextResponse.json(userWithoutPassword, { status: 201 }); // 201: Created

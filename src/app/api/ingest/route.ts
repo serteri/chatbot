@@ -16,7 +16,7 @@ export async function POST(req: Request) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
     }
     const userId = session.user.id;
-
+    const orgId  = session.user.organizationId;
     try {
         const { text, fileName, chatbotId } = await req.json();
 
@@ -26,6 +26,12 @@ export async function POST(req: Request) {
         if (!chatbotId) {
             return new NextResponse(JSON.stringify({ error: "Chatbot ID eksik." }), { status: 400 });
         }
+        // 🔐 tenant check
+        const bot = await prisma.chatbot.findFirst({
+            where: { id: chatbotId, userId, organizationId: orgId },
+            select: { id: true },
+        });
+        if (!bot) return NextResponse.json({ error: "Bu bota erişim yok." }, { status: 403 });
 
         const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 2000, chunkOverlap: 200 });
         const chunks = await splitter.splitText(text);
