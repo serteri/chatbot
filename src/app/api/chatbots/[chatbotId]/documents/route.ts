@@ -9,48 +9,45 @@ interface RouteContext {
     };
 }
 
+// GET /api/chatbots/:chatbotId/documents
+// Optional query: ?fileName=...&limit=...
 export async function GET(req: Request, { params }: RouteContext) {
     const session = await getServerSession(authOptions);
-    if (!session || !session.user?.id) {
-        return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), {
-            status: 401,
-        });
+    if (!session?.user?.id) {
+        return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
     }
 
     const userId = session.user.id;
-    const orgId  = session.user.organizationId;
     const chatbotId = params.chatbotId;
 
-
+    const url = new URL(req.url);
+    const fileName = url.searchParams.get("fileName");
+    const limitStr = url.searchParams.get("limit");
+    const limit = limitStr ? Math.max(1, Math.min(50, Number(limitStr))) : undefined;
 
     try {
-        const bot = await prisma.chatbot.findFirst({
-            where: { id: chatbotId, userId, organizationId: orgId },
-            select: { id: true },
-        });
-        if (!bot) {
-            return new NextResponse(JSON.stringify({ error: "Chatbot bulunamadı" }), { status: 404 });
+        if (fileName) {
+            // Belirli bir dosyanın CHUNK’larını sırayla getir (önizleme veya detay sayfası için)
+            const docs = await prisma.document.findMany({
+                where: { userId, chatbotId, fileName },
+                orderBy: [{ chunkIndex: "asc" }, { createdAt: "asc" }],
+                select: { id: true, content: true, createdAt: true, chunkIndex: true, chunkCount: true },
+                take: limit,
+            });
+            return NextResponse.json(docs);
         }
+
+        // Varsayılan: eski davranış (tam liste, uyarı: çok içerik taşıyabilir)
         const documents = await prisma.document.findMany({
-            where: {
-                userId,
-                chatbotId,
-            },
-            orderBy: {
-                createdAt: "desc",
-            },
-            select: {
-                id: true,
-                content: true,
-                createdAt: true,
-            },
+            where: { userId, chatbotId },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, content: true, createdAt: true, fileName: true, chunkIndex: true, chunkCount: true },
+            take: limit,
         });
 
         return NextResponse.json(documents);
     } catch (error) {
         console.error("Belge listesi hatası:", error);
-        return new NextResponse(JSON.stringify({ error: "Sunucu hatası" }), {
-            status: 500,
-        });
+        return new NextResponse(JSON.stringify({ error: "Sunucu hatası" }), { status: 500 });
     }
 }

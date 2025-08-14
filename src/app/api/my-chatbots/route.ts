@@ -13,7 +13,7 @@ export async function GET() {
 
     try {
         const chatbots = await prisma.chatbot.findMany({
-            where: { userId, organizationId: orgId },
+            where: { userId:session.user.id, organizationId: orgId },
             select: { id: true, name: true },
             orderBy: { createdAt: "desc" },
         });

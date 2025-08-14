@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import AdminBotsTable from "@/components/AdminBotsTable";
 import AdminDocuments from "@/components/AdminDocuments";
 import AdminConversations from "@/components/AdminConversations";
+import AdminBotEditor from "@/components/AdminBotEditor";
 export default async function AdminPage() {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) redirect("/signin");
@@ -40,6 +41,7 @@ export default async function AdminPage() {
             <AdminBotsTable />
             <AdminDocuments />
             <AdminConversations />
+            <AdminBotEditor />
         </div>
     );
 }

@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled
+  directUrl = env("DIRECT_DATABASE_URL") // direct (sadece migrate)
 }
 
 model Organization {
@@ -110,15 +111,27 @@ enum Plan {
 }
 
 model Document {
-  id        String   @id @default(cuid())
+  id        String @id @default(cuid())
   userId    String
-  chatbotId String // 🆕 Bu satırı ekle
-  content   String   @db.Text
-  embedding Float[]
+  chatbotId String
+  content   String @db.Text
+
+  // Eski kolon: geçiş sürecinde opsiyonel yap
+  embedding Float[] @default([])
+
+  // Yeni pgvector kolon (Prisma şu an vector'ü native bilmiyor)
+  embeddingVec Unsupported("vector")?
+  fileName     String?
+  mimeType     String?
+  chunkIndex   Int?
+  chunkCount   Int?
+
   createdAt DateTime @default(now())
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade) // 🆕 bu satır
+  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([userId, chatbotId, fileName])
 }
 
 model BotTemplate {

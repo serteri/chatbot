@@ -12,49 +12,83 @@ const embeddings = new OpenAIEmbeddings({
 
 export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
-    if (!session || !session.user?.id) {
-        return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
+    if (!session?.user?.id) {
+        return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
     }
-    const userId = session.user.id;
-    const orgId  = session.user.organizationId;
-    try {
-        const { text, fileName, chatbotId } = await req.json();
 
-        if (!text || !text.trim()) {
-            return new NextResponse(JSON.stringify({ error: "Gelen metin boş." }), { status: 400 });
+    const userId = session.user.id;
+
+    try {
+        const { text, fileName, mimeType, chatbotId } = await req.json();
+
+        if (!text?.trim()) {
+            return NextResponse.json({ error: "Gelen metin boş." }, { status: 400 });
         }
         if (!chatbotId) {
-            return new NextResponse(JSON.stringify({ error: "Chatbot ID eksik." }), { status: 400 });
+            return NextResponse.json({ error: "Chatbot ID eksik." }, { status: 400 });
         }
-        // 🔐 tenant check
+
+        // sahibini doğrula (opsiyonel ama iyi)
         const bot = await prisma.chatbot.findFirst({
-            where: { id: chatbotId, userId, organizationId: orgId },
+            where: { id: chatbotId, userId },
             select: { id: true },
         });
-        if (!bot) return NextResponse.json({ error: "Bu bota erişim yok." }, { status: 403 });
+        if (!bot) {
+            return NextResponse.json({ error: "Bu bota erişim yok" }, { status: 403 });
+        }
 
-        const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 2000, chunkOverlap: 200 });
+        const splitter = new RecursiveCharacterTextSplitter({
+            chunkSize: 2000,
+            chunkOverlap: 200,
+        });
         const chunks = await splitter.splitText(text);
 
-        for (const chunk of chunks) {
-            const embedding = await embeddings.embedQuery(chunk);
-            await prisma.document.create({
+        const total = chunks.length;
+
+        // parça parça ekle
+        for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+
+            // önce create (content)
+            const created = await prisma.document.create({
                 data: {
                     userId,
-                    chatbotId, // 👈 her belgeye bu chatbot'a ait olduğunu yazıyoruz
+                    chatbotId,
                     content: chunk,
-                    embedding,
-                }
+                    fileName: fileName ?? null,
+                    mimeType: mimeType ?? null,
+                    chunkIndex: i,
+                    chunkCount: total,
+                },
+                select: { id: true },
             });
+
+            // sonra embedding (ve varsa pgvector) doldur
+            const emb = await embeddings.embedQuery(chunk);
+            const lit = `[${emb.join(",")}]`;
+
+            await prisma.$executeRaw`
+        UPDATE "Document"
+        SET "embeddingVec" = ${lit}::vector
+        WHERE "id" = ${created.id}
+      `;
+
+            // istersen Float[] alanını da doldur:
+            // await prisma.document.update({
+            //   where: { id: created.id },
+            //   data: { embedding: emb },
+            // });
         }
 
         return NextResponse.json({
             success: true,
-            message: `'${fileName}' dosyasından ${chunks.length} parça başarıyla işlendi.`,
+            message: `'${fileName ?? "metin"}' ${total} parça olarak işlendi.`,
         });
-
     } catch (error) {
-        console.error("Ingestion API hatası:", error);
-        return new NextResponse(JSON.stringify({ error: "Veri işlenirken bir hata oluştu." }), { status: 500 });
+        console.error("Ingest API hatası:", error);
+        return NextResponse.json(
+            { error: "Veri işlenirken bir hata oluştu." },
+            { status: 500 }
+        );
     }
 }

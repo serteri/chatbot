@@ -1,142 +1,170 @@
 'use client';
 
-import React, { useEffect, useState } from "react";
-import type { TextItem } from 'pdfjs-dist/types/src/display/api';
+import { useEffect, useState } from 'react';
 
-interface Chatbot {
-    id: string;
-    name: string;
-}
+type Bot = { id: string; name: string };
 
-interface DocumentUploaderProps {
-    chatbotId: string;
-}
+type Props = {
+    /** İstersen dışarıdan sabit bot id geçebilirsin; geçmezsen bu bileşen dropdown ile seçtirir */
+    chatbotId?: string;
+};
 
-export default function DocumentUploader({ chatbotId }: DocumentUploaderProps) {
+export default function DocumentUploader({ chatbotId }: Props) {
+    const [bots, setBots] = useState<Bot[]>([]);
+    const [selectedId, setSelectedId] = useState<string>('');
     const [file, setFile] = useState<File | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [message, setMessage] = useState('');
-    const [chatbots, setChatbots] = useState<Chatbot[]>([]);
-    const [selectedChatbotId, setSelectedChatbotId] = useState<string>('');
-    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState<string | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+
+    // Etkin kullanılacak id (dışarıdan geldiyse onu, yoksa dropdown seçimi)
+    const effectiveId = chatbotId || selectedId;
 
     useEffect(() => {
+        let alive = true;
+        // dışarıdan id gelmediyse, listeyi çek ve ilkini seç
         if (!chatbotId) {
-            // Kullanıcının chatbotlarını çek
-            const fetchChatbots = async () => {
+            (async () => {
                 try {
                     const res = await fetch('/api/my-chatbots');
                     const data = await res.json();
-                    if (res.ok) setChatbots(data);
-                    else setMessage('Chatbotlar yüklenemedi.');
-                } catch (err) {
-                    setMessage('Bir hata oluştu: Chatbotlar çekilemedi.');
+                    if (!alive) return;
+                    if (Array.isArray(data) && data.length > 0) {
+                        setBots(data);
+                        setSelectedId(data[0].id);
+                    } else {
+                        setBots([]);
+                        setSelectedId('');
+                    }
+                } catch {
+                    if (alive) {
+                        setBots([]);
+                        setSelectedId('');
+                    }
                 }
-            };
-            fetchChatbots();
+            })();
+        } else {
+            setSelectedId(chatbotId);
         }
+        return () => {
+            alive = false;
+        };
     }, [chatbotId]);
 
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files?.[0]) {
-            const f = e.target.files[0];
-            if (f.size > MAX_FILE_SIZE) {
-                setMessage('Dosya boyutu en fazla 10 MB olabilir.');
-                setFile(null);
-                // Eğer temizlemek istersen:
-                // e.target.value = ""; // input'u sıfırla
-                return;
-            }
-            setFile(f);
-            setMessage('');
-        }
+    const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0] || null;
+        setFile(f);
+        setMsg(null);
+        setErr(null);
     };
 
-    const handleSubmit = async () => {
+    async function extractPdfText(pdfFile: File): Promise<string> {
+        // Dinamik import: Next/webpack’te daha stabil
+        const pdfjsLib: any = await import('pdfjs-dist/build/pdf');
+        // Bazı kurulumlarda worker’ı elle set etmek gerekir; hata alırsan aşağı satırı aktifleştir.
+        // const worker: any = await import('pdfjs-dist/build/pdf.worker.entry');
+        // pdfjsLib.GlobalWorkerOptions.workerSrc = worker;
+
+        const data = await pdfFile.arrayBuffer();
+        const task = pdfjsLib.getDocument({ data });
+        const pdf = await task.promise;
+
+        let out = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            const strings = content.items
+                .map((it: any) => (typeof it?.str === 'string' ? it.str : ''))
+                .filter(Boolean);
+            out += strings.join(' ') + '\n';
+        }
+        return out.trim();
+    }
+
+    const handleUpload = async () => {
+        setMsg(null);
+        setErr(null);
+
+        if (!effectiveId) {
+            setErr('Lütfen bir chatbot seçin.');
+            return;
+        }
         if (!file) {
-            setMessage('Lütfen önce bir dosya seçin.');
-            return;
-        }
-        if (!selectedChatbotId) {
-            setMessage('Lütfen bir chatbot seçin.');
+            setErr('Lütfen .txt veya .pdf dosyası seçin.');
             return;
         }
 
-        setIsLoading(true);
-        setMessage('Dosya okunuyor ve işleniyor...');
+        // 10MB üstünü engelle (server da kontrol ediyor ama UX için iyi)
+        if (file.size > 10 * 1024 * 1024) {
+            setErr('Dosya en fazla 10 MB olmalı.');
+            return;
+        }
 
+        let text = '';
         try {
-            // PDF ve TXT dosyası ayrımı:
-            let textContent = '';
+            setBusy(true);
 
             if (file.type === 'text/plain') {
-                textContent = await file.text();
+                text = await file.text();
             } else if (file.type === 'application/pdf') {
-                const pdfjs = await import('pdfjs-dist/build/pdf.mjs');
-                pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-
-                const arrayBuffer = await file.arrayBuffer();
-                const pdf = await pdfjs.getDocument(arrayBuffer).promise;
-                let fullText = '';
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const text = await page.getTextContent();
-                    const items = text.items as TextItem[];
-                    fullText += items.map((item) => item.str).join(' ');
+                // PDF -> text
+                text = await extractPdfText(file);
+                if (!text.trim()) {
+                    throw new Error('PDF metni çıkarılamadı. Dosya tarama/scan olabilir.');
                 }
-                textContent = fullText;
             } else {
-                throw new Error("Sadece .txt ve .pdf dosyalar desteklenmektedir.");
+                throw new Error('Sadece .txt veya .pdf destekleniyor.');
             }
 
-            if (!textContent.trim()) {
-                throw new Error("Dosya boş ya da okunamıyor.");
-            }
-
-            const response = await fetch('/api/ingest', {
+            const res = await fetch('/api/ingest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: textContent, fileName: file.name, chatbotId: selectedChatbotId }),
+                body: JSON.stringify({
+                    text,
+                    fileName: file.name,
+                    mimeType: file.type,
+                    chatbotId: effectiveId,
+                }),
             });
 
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Sunucu hatası.');
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data?.error || 'Yükleme başarısız.');
             }
 
-            setMessage(data.message || 'Başarıyla yüklendi!');
+            setMsg(`✅ ${data?.message || 'Yükleme tamam.'}`);
             setFile(null);
-        } catch (error: any) {
-            setMessage(`Hata: ${error.message}`);
+            // Başarılıysa istersen burada bir “yenile” callback’i tetikleyebilirsin
+        } catch (e: any) {
+            setErr(e?.message || 'Bir hata oluştu.');
         } finally {
-            setIsLoading(false);
+            setBusy(false);
         }
     };
 
     return (
-        <div className="card bg-base-100 shadow-xl">
-            <div className="card-body">
-                <h2 className="card-title">Bilgi Bankasını Güncelle</h2>
-                <p className="text-sm opacity-60">.txt veya .pdf dosyası yükleyerek AI’ı eğitin.</p>
+        <div className="card bg-base-100 shadow">
+            <div className="card-body space-y-3">
+                <h3 className="card-title">Bilgi Bankasını Güncelle</h3>
+                <p className="text-sm text-gray-500">
+                    .txt veya .pdf dosyası yükleyerek AI’ı eğitin.
+                </p>
 
                 {/* Chatbot seçimi */}
                 {!chatbotId && (
-                    <div className="form-control mt-4">
+                    <div className="form-control">
                         <label className="label">
-                            <span className="label-text">Chatbot Seçin</span>
+                            <span className="label-text">Chatbot seç</span>
                         </label>
                         <select
                             className="select select-bordered"
-                            value={selectedChatbotId}
-                            onChange={(e) => setSelectedChatbotId(e.target.value)}
-                            required
+                            value={selectedId}
+                            onChange={(e) => setSelectedId(e.target.value)}
                         >
-                            <option value="">Bir chatbot seçin</option>
-                            {chatbots.map(bot => (
-                                <option key={bot.id} value={bot.id}>
-                                    {bot.name}
+                            {bots.length === 0 && <option value="">(Chatbot yok)</option>}
+                            {bots.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                    {b.name}
                                 </option>
                             ))}
                         </select>
@@ -144,34 +172,31 @@ export default function DocumentUploader({ chatbotId }: DocumentUploaderProps) {
                 )}
 
                 {/* Dosya seçimi */}
-                <div className="form-control w-full max-w-xs mt-4">
-                    <input
-                        type="file"
-                        accept=".txt,.pdf"
-                        className="file-input file-input-bordered w-full max-w-xs"
-                        onChange={handleFileChange}
-                        key={file ? 'file-selected' : 'no-file'}
-                    />
-                    {file && (
-                        <label className="label">
-                            <span className="label-text-alt">{file.name}</span>
-                        </label>
-                    )}
-                </div>
+                <input
+                    type="file"
+                    accept=".txt,application/pdf"
+                    className="file-input file-input-bordered w-full"
+                    onChange={onFile}
+                />
 
-                {message && (
-                    <div className={`alert text-sm p-2 mt-4 ${message.startsWith('Hata') ? 'alert-error' : 'alert-success'}`}>
-                        {message}
+                {/* Durum */}
+                {file && (
+                    <div className="text-sm opacity-80">
+                        Seçilen dosya: <b>{file.name}</b>
                     </div>
                 )}
+                {err && <div className="alert alert-error text-sm">{err}</div>}
+                {msg && <div className="alert alert-success text-sm">{msg}</div>}
 
-                <div className="card-actions justify-end mt-4">
+                {/* Aksiyon */}
+                <div className="card-actions justify-end">
                     <button
-                        className="btn btn-primary"
-                        onClick={handleSubmit}
-                        disabled={!file || isLoading}
+                        className="btn btn-primary btn-sm"
+                        onClick={handleUpload}
+                        disabled={busy || !effectiveId || !file}
+                        title={!effectiveId ? 'Lütfen chatbot seçin' : undefined}
                     >
-                        {isLoading ? <span className="loading loading-spinner"></span> : 'Yükle ve Eğit'}
+                        {busy ? 'Yükleniyor...' : 'Yükle'}
                     </button>
                 </div>
             </div>

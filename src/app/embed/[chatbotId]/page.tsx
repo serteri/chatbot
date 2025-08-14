@@ -38,16 +38,18 @@ export default function EmbedChatPage({ params }: PageParams) {
             content: input
         };
 
-        const updatedMessages = [...messages, userMessage];
-        setMessages(updatedMessages);
-        setInput('');
+        setMessages((prev) => [...prev, userMessage]);
+        setInput("");
         setIsLoading(true);
 
         try {
             const res = await fetch('/api/public-chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: updatedMessages, chatbotId })
+                body: JSON.stringify({
+                    messages: [...messages, userMessage],
+                    chatbotId,
+                }),
             });
 
             const data = await res.json();
@@ -74,10 +76,19 @@ export default function EmbedChatPage({ params }: PageParams) {
             setIsLoading(false);
         }
     };
-
+    if (!chatbotId) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <div className="text-red-600 font-semibold">❗Chatbot ID eksik.</div>
+            </div>
+        );
+    }
     return (
         <div className="flex flex-col h-screen bg-white text-sm">
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-3 space-y-4">
+            <div className="px-4 py-2 border-b text-sm opacity-70">
+                Embedded Chat · Bot: {chatbotId}
+            </div>
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-3 space-y-3">
                 {messages.map((m) => (
                     <div key={m.id} className={`chat ${m.role === 'user' ? 'chat-end' : 'chat-start'}`}>
                         <div className={`chat-bubble ${m.role === 'user' ? 'chat-bubble-primary' : 'chat-bubble-secondary'}`}>
@@ -101,7 +112,7 @@ export default function EmbedChatPage({ params }: PageParams) {
                     className="input input-bordered w-full input-sm"
                     disabled={isLoading}
                 />
-                <button type="submit" className="btn btn-primary btn-sm" disabled={isLoading}>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={isLoading || !input.trim()}>
                     Gönder
                 </button>
             </form>

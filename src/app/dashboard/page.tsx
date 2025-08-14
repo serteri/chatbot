@@ -20,6 +20,7 @@ interface Chatbot {
 }
 
 export default function DashboardPage() {
+
     // 1) Auth guard
     const { status } = useSession({
         required: true,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams,useRouter } from "next/navigation";
 import ConversationList from "@/components/ConversationList";
 
 import dynamic from "next/dynamic";
@@ -15,6 +15,8 @@ interface Message {
 }
 
 export default function PublicChatPage() {
+    const [bootResolved, setBootResolved] = useState(false);
+    const router = useRouter();
     const searchParams = useSearchParams();
     const chatbotId = searchParams.get("chatbotId");
     const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -29,7 +31,29 @@ export default function PublicChatPage() {
         const f = e.target.files?.[0];
         if (f) setFileToSend(f);
     };
-
+// 1) Eğer URL'de chatbotId yoksa → otomatik seç
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            if (chatbotId) {
+                setBootResolved(true);
+                return;
+            }
+            try {
+                const res = await fetch('/api/my-chatbots');
+                const data = await res.json();
+                if (!alive) return;
+                if (Array.isArray(data) && data.length > 0) {
+                    router.replace(`/chat?chatbotId=${data[0].id}`);
+                } else {
+                    setBootResolved(true); // bot yok → ekranda uyarı göstereceğiz
+                }
+            } catch {
+                setBootResolved(true);
+            }
+        })();
+        return () => { alive = false; };
+    }, [chatbotId, router]);
 
     // Conversation seçilince mesajları getir
     const loadMessages = async (conversationId: string) => {
@@ -88,30 +112,50 @@ export default function PublicChatPage() {
         setIsLoading(true);
 
         try {
-            const res = await fetch("/api/public-chat", {
+            const res = await fetch("/api/public-cha", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     messages: [...messages, userMessage],
                     chatbotId,
-                    conversationId: selectedConversationId, // varsa
+                    conversationId: selectedConversationId,
                 }),
             });
-
+            const body=res.body;
             const data = await res.json();
 
-            if (!res.ok) throw new Error(data.error || "Sunucu hatası");
+            if (!res.ok || !body) {
+                throw new Error("Akış başlatılamadı");
+            }
 
-            const botMessage: Message = {
-                id: Date.now().toString() + "ai",
-                role: "assistant",
-                content: data.text,
-            };
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let acc = "";
+            let cid: string | null = null;
 
-            setMessages((prev) => [...prev, botMessage]);
-            // Eğer yeni açıldıysa, id gelmişse setle
-            if (!selectedConversationId && data.conversationId) {
-                setSelectedConversationId(data.conversationId);
+            // boş assistant mesajı ekle, stream geldikçe append edelim
+            const tempId = Date.now().toString() + "ai";
+            setMessages(prev => [...prev, { id: tempId, role: "assistant", content: "" }]);
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+
+                // CID işaretini yakala (son satırlarda gelir)
+                const parts = chunk.split("\n");
+                for (const p of parts) {
+                    if (p.startsWith("__CID__:")) {
+                        cid = p.replace("__CID__:", "").trim();
+                    } else {
+                        acc += p;
+                        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, content: acc } : m));
+                    }
+                }
+            }
+
+            if (!selectedConversationId && cid) {
+                setSelectedConversationId(cid);
             }
         } catch (err: any) {
             setMessages((prev) => [
@@ -128,13 +172,21 @@ export default function PublicChatPage() {
     };
 
     // ❗Chatbot kimliği yoksa hata göster
-    if (!chatbotId) {
+    if (!chatbotId && bootResolved) {
         return (
-            <div className="flex justify-center items-center h-screen text-center p-8">
-                <div className="text-red-600 text-lg font-semibold">
-                    ❗Chatbot kimliği eksik. Lütfen doğru URL kullanın.
-
+            <div className="flex items-center justify-center h-screen">
+                <div className="text-center space-y-4">
+                    <div className="text-lg font-semibold">❗ Henüz bir chatbot oluşturmadınız.</div>
+                    <a className="btn btn-primary btn-sm" href="/dashboard/settings">➕ Yeni Chatbot Oluştur</a>
                 </div>
+            </div>
+        );
+    }
+    // chatbotId yoksa ama otomatik seçim çalışıyor → skeleton
+    if (!chatbotId && !bootResolved) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <span className="loading loading-spinner loading-lg" />
             </div>
         );
     }
@@ -145,7 +197,7 @@ export default function PublicChatPage() {
             <aside className="w-full md:w-64 border-r bg-base-200 p-4 overflow-y-auto">
                 <h2 className="text-lg font-bold mb-4">Geçmiş Sohbetler</h2>
                 <ConversationList
-                    chatbotId={chatbotId}
+                    chatbotId={chatbotId!}
                     onSelect={(convId) => {
                         setSelectedConversationId(convId);
                         loadMessages(convId);
