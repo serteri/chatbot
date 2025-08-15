@@ -17,7 +17,7 @@ export default function DocumentUploader({ chatbotId }: Props) {
 
     // 🔧 PDFJS v5 doğru kullanım
     async function extractPdfText(pdfFile: File): Promise<string> {
-        // Eski path YOK: 'pdfjs-dist/build/pdf' KULLANMA!
+
         const pdfjs: any = await import('pdfjs-dist');
         const worker: any = await import('pdfjs-dist/build/pdf.worker.mjs');
         pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
