@@ -3,12 +3,16 @@ import { OpenAI } from "openai";
 import { OpenAIEmbeddings } from "@langchain/openai";
 
 export const runtime = "nodejs";
-
+type DocRow = {
+    content: string;
+    embedding: number[] | null; // prisma'da JSON[] ya da null olabilir
+};
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-const embeddings = new OpenAIEmbeddings({
-    openAIApiKey: process.env.OPENAI_API_KEY!,
+const embedder = new OpenAIEmbeddings({
     model: "text-embedding-3-small",
+    openAIApiKey: process.env.OPENAI_API_KEY!,
 });
+
 
 function cosineSimilarity(a: number[], b: number[]) {
     let d=0, x=0, y=0;
@@ -34,15 +38,21 @@ export async function POST(req: Request) {
         const userMessage = (messages as Array<{ role: string; content: string }>).at(-1)!;
 
         // RAG
-        const qEmb = await embeddings.embedQuery(userMessage.content);
+        const qEmb: number[] = await embedder.embedQuery(userMessage.content);
         const docs = await prisma.document.findMany({
-            where: { chatbotId },
+            where: { chatbotId }, // sende neyse o
             select: { content: true, embedding: true },
-        });
-        const top5 = docs.map(d => ({
-            content: d.content,
-            score: cosineSimilarity(qEmb, d.embedding as unknown as number[])
-        })).sort((a,b)=>b.score-a.score).slice(0,5);
+        }) as DocRow[];
+
+        const top5 = docs
+            // embedding null veya yanlış tip ise ayıkla + type guard
+            .filter((d: DocRow): d is { content: string; embedding: number[] } => Array.isArray(d.embedding))
+            .map((d) => ({
+                content: d.content,
+                score: cosineSimilarity(qEmb, d.embedding),
+            }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 5);
 
         let finalContext = "";
         if (top5.length) {

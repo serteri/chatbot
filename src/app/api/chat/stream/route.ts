@@ -5,7 +5,7 @@ import { OpenAI } from "openai";
 import { OpenAIEmbeddings } from "@langchain/openai";
 
 export const runtime = "nodejs";
-
+type Row = { content: string; distance: number };
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const embeddings = new OpenAIEmbeddings({
     openAIApiKey: process.env.OPENAI_API_KEY!,
@@ -22,6 +22,11 @@ function cosineSimilarity(vecA: number[], vecB: number[]) {
 }
 
 export async function POST(req: Request) {
+
+    const embedder = new OpenAIEmbeddings({
+        model: "text-embedding-3-small",
+        openAIApiKey: process.env.OPENAI_API_KEY!,
+    });
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return new Response("Yetkisiz", { status: 401 });
 
@@ -47,16 +52,26 @@ export async function POST(req: Request) {
         const userMessage = (messages as Array<{ role: string; content: string }>).at(-1)!;
 
         // RAG: embed + brute force cosine + mini rerank
-        const qEmb = await embeddings.embedQuery(userMessage.content);
+        const qEmb: number[] = await embedder.embedQuery(userMessage.content);
         const docs = await prisma.document.findMany({
             where: { userId, chatbotId },
             select: { content: true, embedding: true },
         });
 
-        const top5 = docs.map(d => ({
-            content: d.content,
-            score: cosineSimilarity(qEmb, d.embedding as unknown as number[])
-        })).sort((x,y)=>y.score-x.score).slice(0,5);
+        const rows: Row[] = await prisma.$queryRaw<Row[]>`
+            SELECT "content",
+                   "embeddingVec" <=> ${qEmb}::vector AS distance
+            FROM "Document"
+            WHERE "chatbotId" = ${chatbotId}
+            ORDER BY "embeddingVec" <=> ${qEmb}::vector       -- cosine distance (küçük = daha benzer)
+                LIMIT 5;
+        `;
+
+// distance küçük = daha benzer; istersen "score" = 1 - distance yap
+        const top5 = rows.map(r => ({
+            content: r.content,
+            score: 1 - r.distance,
+        }));
 
         let finalContext = "";
         if (top5.length > 0) {

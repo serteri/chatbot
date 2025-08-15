@@ -4,6 +4,15 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 interface Ctx { params: { chatbotId: string } }
+type GroupRow = {
+    fileName: string | null;
+    _count: { _all: number };
+};
+
+
+function hasFileName(row: GroupRow): row is { fileName: string; _count: { _all: number } } {
+    return typeof row.fileName === "string" && row.fileName.length > 0;
+}
 
 // GET /api/chatbots/:chatbotId/files
 // -> [{ fileName, docCount, latestAt }]
@@ -29,12 +38,11 @@ export async function GET(_req: Request, { params }: Ctx) {
             _max: { createdAt: true },
         });
 
-        const items = groups
-            .filter(g => g.fileName) // type guard
-            .map(g => ({
-                fileName: g.fileName as string,
+        const items = (groups as GroupRow[])
+            .filter((g: GroupRow) => Boolean(g.fileName)) // veya .filter(hasFileName)
+            .map((g: GroupRow) => ({
+                fileName: g.fileName as string, // filter’dan sonra string
                 docCount: g._count._all,
-                latestAt: g._max.createdAt,
             }));
 
         return NextResponse.json(items);

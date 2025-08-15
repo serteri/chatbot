@@ -6,7 +6,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import { PrismaAdapter } from "@next-auth/prisma-adapter" // <-- 1. Adaptörü import et
 import prisma from "./prisma" // <-- 2. Prisma client'ımızı import et
 import { compare } from "bcrypt"; // bcrypt'i import ediyoruz
-import { Role, Plan } from "@prisma/client"
+
 
 interface ExtendedUser {
     id: string;
@@ -14,6 +14,9 @@ interface ExtendedUser {
     plan: Plan;
     organizationId: string;
 }
+
+type Role = 'ADMIN' | 'USER';
+type Plan = 'FREE' | 'PRO';
 
 function isExtendedUser(user: any): user is ExtendedUser {
     return (
