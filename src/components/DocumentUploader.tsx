@@ -60,24 +60,23 @@ export default function DocumentUploader({ chatbotId }: Props) {
 
     async function extractPdfText(pdfFile: File): Promise<string> {
         // ✅ v5 için legacy build
-        const pdfjsLib: any = await import('pdfjs-dist/legacy/build/pdf');
+        const pdfjs: any = await import('pdfjs-dist');
+        const worker: any = await import('pdfjs-dist/build/pdf.worker.mjs');
 
         // ✅ Worker’ı CDN’den çek (senin versiyonun 5.3.31)
-        pdfjsLib.GlobalWorkerOptions.workerSrc =
-            'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.3.31/legacy/build/pdf.worker.min.js';
+        pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
 
         const buf = await pdfFile.arrayBuffer();
-        const loadingTask = pdfjsLib.getDocument({ data: buf });
+        const loadingTask = pdfjs.getDocument({ data: buf })
         const pdf = await loadingTask.promise;
 
-        let fullText = '';
-        for (let p = 1; p <= pdf.numPages; p++) {
-            const page = await pdf.getPage(p);
-            const content = await page.getTextContent();
-            const text = content.items.map((it: any) => ('str' in it ? it.str : '')).join(' ');
-            fullText += text + '\n';
+        let full = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            full += textContent.items.map((it: any) => it.str).join(' ') + '\n';
         }
-        return fullText.trim();
+        return full;
     }
 
     const handleUpload = async () => {
