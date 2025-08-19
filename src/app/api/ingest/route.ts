@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 
-const embeddings = new OpenAIEmbeddings({
+const embedder = new OpenAIEmbeddings({
     openAIApiKey: process.env.OPENAI_API_KEY!,
     model: "text-embedding-3-small",
 });
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     try {
         const { text, fileName, mimeType, chatbotId } = await req.json();
 
-        if (!text?.trim()) {
+        if (!text || !text?.trim()) {
             return NextResponse.json({ error: "Gelen metin boş." }, { status: 400 });
         }
         if (!chatbotId) {
@@ -44,45 +44,39 @@ export async function POST(req: Request) {
         const chunks = await splitter.splitText(text);
 
         const total = chunks.length;
-
+        let created = 0;
         // parça parça ekle
         for (let i = 0; i < chunks.length; i++) {
-            const chunk = chunks[i];
-
+            const content = chunks[i];
+            const vec: number[] = await embedder.embedQuery(content);
+            const lit = `[${vec.join(",")}]`; // vector literal
             // önce create (content)
-            const created = await prisma.document.create({
+           const doc =  await prisma.document.create({
                 data: {
                     userId,
                     chatbotId,
-                    content: chunk,
-                    fileName: fileName ?? null,
-                    mimeType: mimeType ?? null,
+                    content,
+                    fileName: fileName || null,
+                    mimeType: mimeType || null,
                     chunkIndex: i,
-                    chunkCount: total,
+                    chunkCount: total,       // 👈 toplam parça
                 },
                 select: { id: true },
             });
+            // 2) sonra embeddingVec’i raw SQL ile set et
+            // Not: vektör literali inline gidiyor. id paramı zaten cuid.
+            await prisma.$executeRawUnsafe(
+                `UPDATE "Document" SET "embeddingVec" = ${lit}::vector WHERE "id" = '${doc.id}'`
+            );
 
-            // sonra embedding (ve varsa pgvector) doldur
-            const emb = await embeddings.embedQuery(chunk);
-            const lit = `[${emb.join(",")}]`;
-
-            await prisma.$executeRaw`
-        UPDATE "Document"
-        SET "embeddingVec" = ${lit}::vector
-        WHERE "id" = ${created.id}
-      `;
-
-            // istersen Float[] alanını da doldur:
-            // await prisma.document.update({
-            //   where: { id: created.id },
-            //   data: { embedding: emb },
-            // });
+            created++;
         }
+
 
         return NextResponse.json({
             success: true,
-            message: `'${fileName ?? "metin"}' ${total} parça olarak işlendi.`,
+            message: `'${fileName || "metin"}' ${created} parça işlendi.`,
+            count: created,
         });
     } catch (error) {
         console.error("Ingest API hatası:", error);

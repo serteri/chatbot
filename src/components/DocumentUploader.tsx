@@ -68,6 +68,7 @@ export default function DocumentUploader({ chatbotId }: Props) {
                     text,
                     fileName: file.name,
                     chatbotId,
+                    mimeType: file.type ?? null
                 }),
             });
 

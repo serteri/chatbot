@@ -63,18 +63,17 @@ export async function PATCH(req: Request, { params }: Ctx) {
 export async function DELETE(_req: Request, { params }: Ctx) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-    if (session.user.role !== "ADMIN") return NextResponse.json({ error: "İzin yok" }, { status: 403 });
+    const userId = session.user.id;
 
-    const orgId = session.user.organizationId;
     const { chatbotId } = params;
 
     try {
         // aynı org’a mı ait?
-        const bot = await prisma.chatbot.findFirst({
-            where: { id: chatbotId, organizationId: orgId },
-            select: { id: true },
+        const bot = await prisma.chatbot.findUnique({
+            where: { id: chatbotId,userId},
+            select: { id: true,userId:true },
         });
-        if (!bot) return NextResponse.json({ error: "Chatbot bulunamadı" }, { status: 404 });
+        if (!bot || bot.userId !== userId) return NextResponse.json({ error: "Chatbot bulunamadı" }, { status: 404 });
 
         // ilişkili conversation/document’lar CASCADE ise prisma şemasında onDelete: Cascade tanımlı olmalı
         await prisma.chatbot.delete({ where: { id: chatbotId } });

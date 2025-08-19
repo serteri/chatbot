@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from 'react';
 
-type FileRow = { fileName: string; docCount: number; latestAt: string };
+type FileGroup = {
+    fileName: string;
+    docCount: number;
+    lastUploadedAt: string | null;
+};
 
 export default function ChatbotDocuments({ chatbotId }: { chatbotId: string }) {
-    const [rows, setRows] = useState<FileRow[]>([]);
+    const [rows, setRows] = useState<FileGroup[]>([]);
+    const [groups, setGroups] = useState<FileGroup[]>([]);
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState<string | null>(null);
     const [preview, setPreview] = useState<{ fileName: string; text: string } | null>(null);
@@ -16,10 +21,18 @@ export default function ChatbotDocuments({ chatbotId }: { chatbotId: string }) {
         setLoading(true);
         setErr(null);
         try {
-            const res = await fetch(`/api/chatbots/${chatbotId}/files`);
+            const res = await fetch(`/api/chatbots/${chatbotId}/files` ,{
+                cache: "no-store",
+            });
             const data = await res.json();
             if (!res.ok) throw new Error(data?.error || 'Liste alınamadı');
-            setRows(data);
+            // son yüklenme tarihine göre sırala (yeniden eskiye)
+            data.sort((a: FileGroup, b: FileGroup) => {
+                const ta = a.lastUploadedAt ? new Date(a.lastUploadedAt).getTime() : 0;
+                const tb = b.lastUploadedAt ? new Date(b.lastUploadedAt).getTime() : 0;
+                return tb - ta;
+            });
+            setGroups(data);
         } catch (e: any) {
             setErr(e?.message || 'Hata');
             setRows([]);
@@ -44,85 +57,77 @@ export default function ChatbotDocuments({ chatbotId }: { chatbotId: string }) {
         }
     }
 
-    async function handleDelete(fileName: string) {
-        if (!confirm(`'${fileName}' adlı dosyaya ait tüm parçaları silmek istediğine emin misin?`)) return;
-        setBusyDelete(fileName);
+    const handleDeleteFile = async (fileName: string) => {
+        const ok = confirm(
+            `"${fileName}" adlı dosyanın tüm parçalarını silmek istediğinize emin misiniz?`
+        );
+        if (!ok) return;
         try {
-            const res = await fetch(`/api/chatbots/${chatbotId}/files?fileName=${encodeURIComponent(fileName)}`, {
-                method: 'DELETE',
-            });
+            const res = await fetch(
+                `/api/chatbots/${chatbotId}/files?fileName=${encodeURIComponent(fileName)}`,
+                { method: "DELETE" }
+            );
             const data = await res.json();
-            if (!res.ok) throw new Error(data?.error || 'Silme başarısız');
+            if (!res.ok) throw new Error(data?.error || "Silinemedi");
             await fetchRows();
         } catch (e: any) {
-            alert(e?.message || 'Silme sırasında hata.');
-        } finally {
-            setBusyDelete(null);
+            alert(e.message || "Silme sırasında hata oluştu");
         }
+    };
+
+    if (!chatbotId) {
+        return (
+            <div className="p-4 bg-base-200 rounded">
+                <p>Lütfen bir chatbot seçin.</p>
+            </div>
+        );
     }
 
     return (
-        <div className="card bg-base-100 shadow">
-            <div className="card-body">
-                <div className="flex items-center justify-between">
-                    <h3 className="card-title">Yüklenen Belgeler</h3>
-                    <button className="btn btn-ghost btn-xs" onClick={fetchRows} disabled={loading}>
-                        Yenile
-                    </button>
-                </div>
-
-                {err && <div className="alert alert-error text-sm">{err}</div>}
-                {loading ? (
-                    <div className="skeleton h-10 w-full" />
-                ) : rows.length === 0 ? (
-                    <div className="text-sm opacity-70">Henüz dosya yok.</div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="table table-sm">
-                            <thead>
-                            <tr>
-                                <th>Dosya adı</th>
-                                <th>Parça sayısı</th>
-                                <th>Son güncelleme</th>
-                                <th className="text-right">Aksiyon</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {rows.map((r) => (
-                                <tr key={r.fileName}>
-                                    <td className="font-medium">{r.fileName}</td>
-                                    <td>{r.docCount}</td>
-                                    <td>{new Date(r.latestAt).toLocaleString('tr-TR')}</td>
-                                    <td className="text-right space-x-2">
-                                        <button className="btn btn-outline btn-xs" onClick={() => handlePreview(r.fileName)}>
-                                            Önizle
-                                        </button>
-                                        <button
-                                            className="btn btn-error btn-xs"
-                                            onClick={() => handleDelete(r.fileName)}
-                                            disabled={busyDelete === r.fileName}
-                                        >
-                                            {busyDelete === r.fileName ? 'Siliniyor...' : 'Sil'}
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-
-                {/* Basit önizleme paneli */}
-                {preview && (
-                    <div className="mt-4 border rounded p-3 bg-base-200">
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="font-semibold">Önizleme: {preview.fileName}</div>
-                            <button className="btn btn-ghost btn-xs" onClick={() => setPreview(null)}>Kapat</button>
-                        </div>
-                        <pre className="whitespace-pre-wrap text-sm max-h-80 overflow-auto">{preview.text}</pre>
-                    </div>
-                )}
+        <div className="p-4 bg-base-100 rounded shadow space-y-4">
+            <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Yüklenmiş Dosyalar</h3>
+                <button className="btn btn-sm" onClick={fetchRows} disabled={loading}>
+                    Yenile
+                </button>
             </div>
+
+            {err && <div className="alert alert-error">{err}</div>}
+            {loading && <div className="skeleton h-8 w-full" />}
+
+            {groups.length === 0 && !loading ? (
+                <div className="text-sm text-gray-500">
+                    Henüz bu chatbot için yüklenmiş bir dosya yok.
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {groups.map((g) => (
+                        <div
+                            key={g.fileName}
+                            className="flex items-center justify-between p-3 border rounded hover:bg-base-200"
+                        >
+                            <div>
+                                <div className="font-medium">{g.fileName}</div>
+                                <div className="text-xs text-gray-500">
+                                    Parça sayısı: {g.docCount}{" "}
+                                    {g.lastUploadedAt && (
+                                        <>• Son: {new Date(g.lastUploadedAt).toLocaleString("tr-TR")}</>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {/* İstersen buraya “detayları gör” linki de ekleyebiliriz */}
+                                <button
+                                    className="btn btn-outline btn-error btn-sm"
+                                    onClick={() => handleDeleteFile(g.fileName)}
+                                >
+                                    Sil
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }

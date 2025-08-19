@@ -3,9 +3,10 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL") // pooled
-  directUrl = env("DIRECT_DATABASE_URL") // direct (sadece migrate
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model Organization {
@@ -16,17 +17,28 @@ model Organization {
 }
 
 model Chatbot {
-  id             String         @id @default(cuid())
-  userId         String
-  name           String
-  systemPrompt   String?        @db.Text
-  createdAt      DateTime       @default(now())
-  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversations  Conversation[]
-  Document       Document[]
-  mode           PromptMode     @default(STRICT) // Yeni alan
-  Organization   Organization?  @relation(fields: [organizationId], references: [id])
-  organizationId String?
+  id                 String     @id @default(cuid())
+  userId             String
+  organizationId     String?
+  name               String
+  systemPrompt       String?    @db.Text
+  mode               PromptMode @default(STRICT)
+  isPublic           Boolean    @default(false)
+  storeConversations Boolean    @default(false)
+  retentionDays      Int?
+  embedAllowlist     String[]   @default([])
+  createdAt          DateTime   @default(now())
+
+  // relations
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization       Organization?        @relation(fields: [organizationId], references: [id])
+  conversations      Conversation[]
+  documents          Document[] // <<< isim standardize
+  PublicConversation PublicConversation[]
+
+  @@index([userId, organizationId])
+  @@index([organizationId, isPublic])
+  @@index([createdAt])
 }
 
 enum PromptMode {
@@ -138,4 +150,18 @@ model BotTemplate {
   id           String @id @default(cuid())
   name         String
   systemPrompt String
+}
+
+model PublicConversation {
+  id             String   @id @default(cuid())
+  chatbotId      String
+  organizationId String?
+  visitorId      String? // cookie'ye yazdığımız uuid
+  externalUserId String? // müşteri sisteminden gelen id
+  messages       Json
+  createdAt      DateTime @default(now())
+
+  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([chatbotId, createdAt])
 }

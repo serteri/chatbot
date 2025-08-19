@@ -6,6 +6,7 @@ import ChatbotList from "@/components/ChatbotList";
 import ChatbotDocuments from "@/components/ChatbotDocuments";
 import EmbedCodeDisplay from "@/components/EmbedCodeDisplay";
 import DocumentUploader from "@/components/DocumentUploader";
+import ChatbotFiles from "@/components/ChatbotFiles.tsx";
 
 export default function CreateChatbotPage() {
     const router = useRouter();
@@ -100,6 +101,7 @@ export default function CreateChatbotPage() {
             {selectedChatbotId && (
                 <div className="mt-10 space-y-6">
                     <DocumentUploader chatbotId={selectedChatbotId} />
+                    <ChatbotFiles chatbotId={selectedChatbotId} />
                     <ChatbotDocuments chatbotId={selectedChatbotId} />
                     <EmbedCodeDisplay chatbotId={selectedChatbotId} />
                 </div>

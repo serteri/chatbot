@@ -1,56 +1,32 @@
 
 import { withAuth } from "next-auth/middleware";
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 
-export function middleware(req: NextRequest) {
-    const url = req.nextUrl.pathname;
 
-    // sadece /embed/* sayfalarına CSP ekle
-    if (url.startsWith("/embed/")) {
-        const res = NextResponse.next();
+export default withAuth(
+    function middleware() {},
+    {
+        callbacks: {
+            authorized: ({ token, req }) => {
+                const path = req.nextUrl.pathname;
 
-        const allowList = (process.env.EMBED_ALLOWED_ORIGINS || "")
-            .split(",")
-            .map(s => s.trim())
-            .filter(Boolean);
-
-        // boşsa dev kolaylığı için localhost’u serbest bırak
-        const devDefaults = ["http://localhost:3000", "http://127.0.0.1:3000"];
-        const finalList = allowList.length ? allowList : devDefaults;
-
-        // frame-ancestors ile hangi parent domainlerin embed edebileceğini kısıtlıyoruz
-        res.headers.set("Content-Security-Policy", `frame-ancestors ${finalList.join(" ")};`);
-        // (X-Frame-Options zaten CSP ile redundant; eklemiyoruz)
-        return res;
-    }
-
-    return NextResponse.next();
-}
-
-export default withAuth({
-    callbacks: {
-        authorized({ token, req }) {
-            // /admin → sadece ADMIN
-            if (req.nextUrl.pathname.startsWith("/admin")) {
-                return token?.role === "ADMIN";
-            }
-            // diğer korunan sayfalar → login yeterli
-            return !!token;
+                // /admin sadece ADMIN
+                if (path.startsWith("/admin")) {
+                    return token?.role === "ADMIN";
+                }
+                // dashboard, embed vb. için giriş zorunlu
+                if (path.startsWith("/dashboard")) {
+                    return !!token;
+                }
+                // diğer her şey serbest
+                return true;
+            },
         },
-    },
-});
+    }
+);
 
 export const config = {
     matcher: [
+        "/admin/:path*",
         "/dashboard/:path*",
-        "/conversations/:path*",
-        "/admin/:path*", // admin panelin varsa
-        // API’leri de istersen ekle:
-        // "/api/chatbots/:path*",
-        // "/api/conversations/:path*",
-        // "/api/documents/:path*",
-        // "/api/ingest/:path*",
-        // "/api/chat/:path*",
     ],
 };

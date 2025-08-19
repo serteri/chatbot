@@ -29,23 +29,17 @@ export async function GET(req: Request, { params }: RouteContext) {
         if (fileName) {
             // Belirli bir dosyanın CHUNK’larını sırayla getir (önizleme veya detay sayfası için)
             const docs = await prisma.document.findMany({
-                where: { userId, chatbotId, fileName },
-                orderBy: [{ chunkIndex: "asc" }, { createdAt: "asc" }],
-                select: { id: true, content: true, createdAt: true, chunkIndex: true, chunkCount: true },
+                where: { userId, chatbotId,  ...(fileName ? { fileName } : {}), },
+                orderBy: [ { fileName: "asc" },
+                    { chunkIndex: "asc" },
+                    { createdAt: "desc" },],
+                select: { id: true, content: true, createdAt: true, chunkIndex: true, chunkCount: true,fileName:true },
                 take: limit,
             });
             return NextResponse.json(docs);
         }
 
-        // Varsayılan: eski davranış (tam liste, uyarı: çok içerik taşıyabilir)
-        const documents = await prisma.document.findMany({
-            where: { userId, chatbotId },
-            orderBy: { createdAt: "desc" },
-            select: { id: true, content: true, createdAt: true, fileName: true, chunkIndex: true, chunkCount: true },
-            take: limit,
-        });
 
-        return NextResponse.json(documents);
     } catch (error) {
         console.error("Belge listesi hatası:", error);
         return new NextResponse(JSON.stringify({ error: "Sunucu hatası" }), { status: 500 });

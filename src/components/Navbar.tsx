@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter,usePathname } from 'next/navigation';
 
 const HamburgerIcon = () => (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -24,6 +24,13 @@ export default function Navbar() {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [loadingBots, setLoadingBots] = useState(false);
     const [firstChatbotId, setFirstChatbotId] = useState<string | null>(null);
+
+
+    const pathname = usePathname();
+    useEffect(() => {
+        setIsMenuOpen(false);
+    }, [pathname]);
+
 
     // Kullanıcının ilk chatbot’unu çek
     useEffect(() => {
@@ -182,7 +189,7 @@ export default function Navbar() {
 
             {/* Mobile menu */}
             {isMenuOpen && (
-                <div className="md:hidden absolute top-16 left-0 w-full bg-white shadow-lg">
+                <div className="md:hidden fixed left-0 right-0 top-16 bottom-0 z-40 bg-white shadow-lg overflow-auto">
                     <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                         {navLinks.map((link) => (
                             <Link
