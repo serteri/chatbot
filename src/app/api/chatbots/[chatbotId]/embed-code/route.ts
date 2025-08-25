@@ -3,13 +3,9 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
-interface Params {
-    params: {
-        chatbotId: string;
-    }
-}
 
-export async function GET(req: Request, { params }: Params) {
+
+export async function GET(req: Request, { params }: { params: { chatbotId: string } }) {
     const session = await getServerSession(authOptions);
     if (!session || !session.user?.id) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });

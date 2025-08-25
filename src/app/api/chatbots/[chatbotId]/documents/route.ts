@@ -3,15 +3,10 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
-interface RouteContext {
-    params: {
-        chatbotId: string;
-    };
-}
 
 // GET /api/chatbots/:chatbotId/documents
 // Optional query: ?fileName=...&limit=...
-export async function GET(req: Request, { params }: RouteContext) {
+export async function GET(req: Request, { params }: { params: { chatbotId: string }}) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });

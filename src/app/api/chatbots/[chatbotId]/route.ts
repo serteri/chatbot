@@ -3,14 +3,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
-interface Ctx { params: { chatbotId: string } }
+
 
 // ❗ Prisma sürümünden bağımsız enum tipi:
 const MODES = ["STRICT", "FLEXIBLE"] as const;
 type PromptMode = typeof MODES[number];
 const isMode = (v: unknown): v is PromptMode => MODES.includes(v as PromptMode);
 
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(_req: Request,{ params }: { params: { chatbotId: string } }) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
@@ -37,7 +37,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     }
 }
 
-export async function PATCH(req: Request, { params }: Ctx) {
+export async function PATCH(req: Request,  { params }: { params: { chatbotId: string } }) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
@@ -77,7 +77,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(_req: Request, { params }: { params: { chatbotId: string } }) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
