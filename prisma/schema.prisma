@@ -12,28 +12,26 @@ datasource db {
 model Organization {
   id       String    @id @default(cuid())
   name     String
-  users    User[]
   chatbots Chatbot[]
+  users    User[]
 }
 
 model Chatbot {
-  id                 String     @id @default(cuid())
+  id                 String               @id @default(cuid())
   userId             String
   organizationId     String?
   name               String
-  systemPrompt       String?    @db.Text
-  mode               PromptMode @default(STRICT)
-  isPublic           Boolean    @default(false)
-  storeConversations Boolean    @default(false)
+  systemPrompt       String?
+  mode               PromptMode           @default(STRICT)
+  isPublic           Boolean              @default(false)
+  storeConversations Boolean              @default(false)
   retentionDays      Int?
-  embedAllowlist     String[]   @default([])
-  createdAt          DateTime   @default(now())
-
-  // relations
-  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  embedAllowlist     String[]             @default([])
+  createdAt          DateTime             @default(now())
   organization       Organization?        @relation(fields: [organizationId], references: [id])
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversations      Conversation[]
-  documents          Document[] // <<< isim standardize
+  documents          Document[]
   PublicConversation PublicConversation[]
 
   @@index([userId, organizationId])
@@ -41,24 +39,18 @@ model Chatbot {
   @@index([createdAt])
 }
 
-enum PromptMode {
-  STRICT // sadece belge
-  FLEXIBLE // belge + genel bilgi
-}
-
-// NextAuth.js için gerekli standart modeller
 model Account {
   id                String  @id @default(cuid())
   userId            String
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -83,13 +75,13 @@ model User {
   role               Role           @default(USER)
   plan               Plan           @default(FREE)
   onboardingComplete Boolean        @default(false)
-  accounts           Account[]
-  sessions           Session[]
-  documents          Document[]
-  conversations      Conversation[] // YENİ: Kullanıcının konuşmaları ilişkisi
-  Organization       Organization?  @relation(fields: [organizationId], references: [id])
   organizationId     String?
+  accounts           Account[]
   chatbots           Chatbot[]
+  conversations      Conversation[]
+  documents          Document[]
+  sessions           Session[]
+  Organization       Organization?  @relation(fields: [organizationId], references: [id])
 }
 
 model VerificationToken {
@@ -100,48 +92,31 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// Bizim kendi modelimiz
 model Conversation {
   id        String   @id @default(cuid())
   userId    String
-  chatbotId String // Konuşmanın hangi chatbot'a ait olduğu
+  chatbotId String
   title     String
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chatbot   Chatbot  @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
   messages  Json
-}
-
-enum Role {
-  ADMIN
-  USER
-}
-
-enum Plan {
-  FREE
-  PRO
+  chatbot   Chatbot  @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Document {
-  id        String @id @default(cuid())
-  userId    String
-  chatbotId String
-  content   String @db.Text
-
-  // Eski kolon: geçiş sürecinde opsiyonel yap
-  embedding Float[] @default([])
-
-  // Yeni pgvector kolon (Prisma şu an vector'ü native bilmiyor)
+  id           String                 @id @default(cuid())
+  userId       String
+  chatbotId    String
+  content      String
+  embedding    Float[]                @default([])
   embeddingVec Unsupported("vector")?
   fileName     String?
   mimeType     String?
   chunkIndex   Int?
   chunkCount   Int?
-
-  createdAt DateTime @default(now())
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  createdAt    DateTime               @default(now())
+  chatbot      Chatbot                @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, chatbotId, fileName])
 }
@@ -156,12 +131,32 @@ model PublicConversation {
   id             String   @id @default(cuid())
   chatbotId      String
   organizationId String?
-  visitorId      String? // cookie'ye yazdığımız uuid
-  externalUserId String? // müşteri sisteminden gelen id
+  visitorId      String?
+  externalUserId String?
   messages       Json
   createdAt      DateTime @default(now())
-
-  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  chatbot        Chatbot  @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
 
   @@index([chatbotId, createdAt])
+}
+
+model playing_with_neon {
+  id    Int    @id @default(autoincrement())
+  name  String
+  value Float? @db.Real
+}
+
+enum PromptMode {
+  STRICT
+  FLEXIBLE
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum Plan {
+  FREE
+  PRO
 }

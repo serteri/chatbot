@@ -16,7 +16,21 @@ const nextConfig = {
         ],
     },
     reactStrictMode: true,
-
+    async headers() {
+        return [
+            {
+                source: "/embed/:path*",
+                headers: [
+                    {
+                        key: "Content-Security-Policy",
+                        value: `frame-ancestors ${process.env.EMBED_ALLOWED_ORIGINS?.split(",").join(" ") || "'self'"};`,
+                    },
+                    { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+                    { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+                ],
+            },
+        ];
+    },
 };
 
 export default nextConfig;

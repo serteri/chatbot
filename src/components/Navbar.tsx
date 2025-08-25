@@ -24,6 +24,10 @@ export default function Navbar() {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [loadingBots, setLoadingBots] = useState(false);
     const [firstChatbotId, setFirstChatbotId] = useState<string | null>(null);
+// Navbar component içinde (state'lerin altında bir yere)
+    const PUBLIC_BOT_ID = process.env.NEXT_PUBLIC_PUBLIC_CHATBOT_ID; // build-time
+    const demoBotId = firstChatbotId || PUBLIC_BOT_ID || null;
+    const demoHref = demoBotId ? `/public-chat?chatbotId=${demoBotId}` : "/public-chat";
 
 
     const pathname = usePathname();
@@ -102,6 +106,21 @@ export default function Navbar() {
                                 {link.label}
                             </Link>
                         ))}
+                        {/* YENİ: Genel Demo */}
+                        <Link
+                            href={demoHref}
+                            className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm"
+                        >
+                            Genel Demo
+                        </Link>
+                        <Link
+                            href="/conversations"
+                            className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm"
+                        >
+                            Konuşmalar
+                        </Link>
+
+
                         {session?.user?.role === 'ADMIN' && (
                             <Link
                                 href="/admin"
@@ -201,6 +220,21 @@ export default function Navbar() {
                                 {link.label}
                             </Link>
                         ))}
+                        {/* YENİ: Genel Demo (mobile) */}
+                        <Link
+                            href={demoHref}
+                            className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium"
+                            onClick={() => setIsMenuOpen(false)}
+                        >
+                            Genel Demo
+                        </Link>
+                        <Link
+                            href="/conversations"
+                            className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium"
+                            onClick={() => setIsMenuOpen(false)}
+                        >
+                            Konuşmalar
+                        </Link>
 
                         {session?.user?.role === 'ADMIN' && (
                             <Link

@@ -23,10 +23,7 @@ function cosineSimilarity(vecA: number[], vecB: number[]) {
 
 export async function POST(req: Request) {
 
-    const embedder = new OpenAIEmbeddings({
-        model: "text-embedding-3-small",
-        openAIApiKey: process.env.OPENAI_API_KEY!,
-    });
+
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return new Response("Yetkisiz", { status: 401 });
 
@@ -51,12 +48,16 @@ export async function POST(req: Request) {
 
         const userMessage = (messages as Array<{ role: string; content: string }>).at(-1)!;
 
+        const embedder = new OpenAIEmbeddings({
+            model: "text-embedding-3-small",
+            openAIApiKey: process.env.OPENAI_API_KEY!,
+        });
         // RAG: embed + brute force cosine + mini rerank
         const qEmb: number[] = await embedder.embedQuery(userMessage.content);
-        const docs = await prisma.document.findMany({
-            where: { userId, chatbotId },
-            select: { content: true, embedding: true },
-        });
+        // const docs = await prisma.document.findMany({
+        //     where: { userId, chatbotId },
+        //     select: { content: true, embedding: true },
+        // });
 
         const rows: Row[] = await prisma.$queryRaw<Row[]>`
             SELECT "content",
