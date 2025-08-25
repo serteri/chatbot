@@ -1,35 +1,35 @@
-import { NextResponse } from "next/server";
+// src/app/api/chatbots/[chatbotId]/conversations/route.ts
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
-interface Ctx { params: { chatbotId: string } }
+export const runtime = "nodejs";
 
-export async function GET(_req: Request, { params }: Ctx) {
+type Context = { params: { chatbotId: string } };
+
+export async function GET(_req: Request, { params }: Context) {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-    if (session.user.role !== "ADMIN") return NextResponse.json({ error: "İzin yok" }, { status: 403 });
+    if (!session?.user?.id) {
+        return new Response("Yetkisiz", { status: 401 });
+    }
 
-    const orgId = session.user.organizationId;
     const { chatbotId } = params;
 
-    try {
-        // bot gerçekten bu org’a mı ait?
-        const bot = await prisma.chatbot.findFirst({
-            where: { id: chatbotId, organizationId: orgId },
-            select: { id: true },
-        });
-        if (!bot) return NextResponse.json({ error: "Chatbot bulunamadı" }, { status: 404 });
-
-        const conversations = await prisma.conversation.findMany({
-            where: { chatbotId, chatbot: { organizationId: orgId } },
-            orderBy: { createdAt: "desc" },
-            select: { id: true, title: true, createdAt: true, userId: true },
-        });
-
-        return NextResponse.json(conversations);
-    } catch (err) {
-        console.error("Admin conversations GET hatası:", err);
-        return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });
+    // Bot sahipliği kontrolü (gerekirse org kontrolü ekleyebilirsin)
+    const bot = await prisma.chatbot.findFirst({
+        where: { id: chatbotId, userId: session.user.id },
+        select: { id: true },
+    });
+    if (!bot) {
+        return new Response("Bot bulunamadı", { status: 404 });
     }
+
+    const convs = await prisma.conversation.findMany({
+        where: { chatbotId, userId: session.user.id },
+        select: { id: true, title: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+    });
+
+    return Response.json(convs);
 }
