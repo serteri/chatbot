@@ -2,19 +2,18 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
+import { getParamFromUrl } from "@/lib/routeParams";
 
 
 
-
-export async function GET(req: Request, { params }: { params: { conversationId: string } }) {
+export async function GET(req: Request) {
     const session = await getServerSession(authOptions);
     if (!session || !session.user?.id) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
     }
 
     const userId = session.user.id;
-    const { conversationId } = params;
-
+    const conversationId = getParamFromUrl(req, "conversations");
     try {
         const conversation = await prisma.conversation.findUnique({
             where: {
@@ -43,14 +42,14 @@ export async function GET(req: Request, { params }: { params: { conversationId: 
     }
 }
 
-export async function DELETE(_req: Request, { params }: { params: { conversationId: string } }) {
+export async function DELETE(_req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
     const isAdmin = session.user.role === "ADMIN";
     const userId  = session.user.id;
     const orgId   = session.user.organizationId;
-    const { conversationId } = params;
+    const conversationId = getParamFromUrl(_req, "conversations");
 
     try {
         const convo = await prisma.conversation.findFirst({

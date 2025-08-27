@@ -2,15 +2,15 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { getParamFromUrl } from "@/lib/routeParams";
 
-
-export async function GET(_req: Request, { params }: { params: { chatbotId: string } }) {
+export async function GET(_req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
     const userId = session.user.id;
     const orgId  = session.user.organizationId;
-    const { chatbotId } = params;
+    const chatbotId = getParamFromUrl(_req, "chatbots");
 
     try {
         const bot = await prisma.chatbot.findFirst({
@@ -25,14 +25,14 @@ export async function GET(_req: Request, { params }: { params: { chatbotId: stri
     }
 }
 
-export async function PATCH(req: Request, { params }: { params: { chatbotId: string } }) {
+export async function PATCH(req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
     if (session.user.role !== "ADMIN") return NextResponse.json({ error: "İzin yok" }, { status: 403 });
 
     const userId = session.user.id;
     const orgId  = session.user.organizationId;
-    const { chatbotId } = params;
+    const chatbotId = getParamFromUrl(req, "chatbots");
 
     try {
         const { name, systemPrompt } = await req.json();
@@ -59,12 +59,12 @@ export async function PATCH(req: Request, { params }: { params: { chatbotId: str
     }
 }
 
-export async function DELETE(_req: Request, { params }: { params: { chatbotId: string } }) {
+export async function DELETE(_req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
     const userId = session.user.id;
 
-    const { chatbotId } = params;
+    const chatbotId = getParamFromUrl(_req, "chatbots");
 
     try {
         // aynı org’a mı ait?

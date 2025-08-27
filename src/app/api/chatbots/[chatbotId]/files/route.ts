@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { getParamFromUrl } from "@/lib/routeParams";
 
 type GroupRow = {
     fileName: string | null;
@@ -10,14 +11,14 @@ type GroupRow = {
 };
 // GET /api/chatbots/:chatbotId/files
 // -> [{ fileName, docCount, latestAt }]
-export async function GET(_req: Request, { params }: { params: { chatbotId: string } }) {
+export async function GET(_req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
         return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
     }
 
     const userId = session.user.id;
-    const { chatbotId } = params;
+    const chatbotId = getParamFromUrl(_req, "chatbots");
 
     try {
 
@@ -63,15 +64,14 @@ export async function GET(_req: Request, { params }: { params: { chatbotId: stri
 
 // DELETE /api/chatbots/:chatbotId/files?fileName=...
 // -> aynı dosyaya ait TÜM chunk’ları siler
-export async function DELETE( req: Request,
-                              { params }: { params: { chatbotId: string } }) {
+export async function DELETE( req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
         return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
     }
 
     const userId = session.user.id;
-    const { chatbotId } = params;
+    const chatbotId = getParamFromUrl(req, "chatbots");
 
 
 

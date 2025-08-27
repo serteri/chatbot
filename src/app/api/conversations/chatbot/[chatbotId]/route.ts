@@ -1,12 +1,11 @@
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
+import { getParamFromUrl } from "@/lib/routeParams";
 
-interface RouteContext {
-    params: { chatbotId: string };
-}
 
-export async function GET(req: Request, { params }: { params: { chatbotId: string } }) {
-    const { chatbotId } = params;
+
+export async function GET(req: Request) {
+    const chatbotId = getParamFromUrl(req, "chatbots");
 
     try {
         const conversations = await prisma.conversation.findMany({

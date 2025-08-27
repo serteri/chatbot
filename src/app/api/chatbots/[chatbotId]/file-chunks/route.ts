@@ -2,14 +2,15 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
+import { getParamFromUrl } from "@/lib/routeParams";
 
-export async function GET(req: Request, { params }: { params: { chatbotId: string } }) {
+export async function GET(req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
         return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
     }
     const userId = session.user.id;
-    const chatbotId = params.chatbotId;
+    const chatbotId = getParamFromUrl(req, "chatbots");
 
     try {
         const url = new URL(req.url);

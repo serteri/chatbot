@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-
+import { getParamFromUrl } from "@/lib/routeParams";
 
 
 // ❗ Prisma sürümünden bağımsız enum tipi:
@@ -10,7 +10,7 @@ const MODES = ["STRICT", "FLEXIBLE"] as const;
 type PromptMode = typeof MODES[number];
 const isMode = (v: unknown): v is PromptMode => MODES.includes(v as PromptMode);
 
-export async function GET(_req: Request,{ params }: { params: { chatbotId: string } }) {
+export async function GET(_req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
@@ -19,7 +19,7 @@ export async function GET(_req: Request,{ params }: { params: { chatbotId: strin
 
         const userId = session.user.id;
         const orgId  = session.user.organizationId;
-        const { chatbotId } = params;
+        const chatbotId = getParamFromUrl(_req, "chatbots");
 
         const bot = await prisma.chatbot.findFirst({
             where: { id: chatbotId, userId, organizationId: orgId ?? undefined },
@@ -37,7 +37,7 @@ export async function GET(_req: Request,{ params }: { params: { chatbotId: strin
     }
 }
 
-export async function PATCH(req: Request,  { params }: { params: { chatbotId: string } }) {
+export async function PATCH(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
@@ -48,7 +48,7 @@ export async function PATCH(req: Request,  { params }: { params: { chatbotId: st
         }
 
         const orgId  = session.user.organizationId;
-        const { chatbotId } = params;
+        const chatbotId = getParamFromUrl(req, "chatbots");
         const { name, systemPrompt, mode } = await req.json();
 
         // önce aynı org’a ait mi diye doğrula
@@ -77,7 +77,7 @@ export async function PATCH(req: Request,  { params }: { params: { chatbotId: st
     }
 }
 
-export async function DELETE(_req: Request, { params }: { params: { chatbotId: string } }) {
+export async function DELETE(_req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
@@ -88,7 +88,7 @@ export async function DELETE(_req: Request, { params }: { params: { chatbotId: s
         }
 
         const orgId = session.user.organizationId;
-        const { chatbotId } = params;
+        const chatbotId = getParamFromUrl(_req, "chatbots");
 
         // aynı org’a mı ait?
         const bot = await prisma.chatbot.findFirst({
