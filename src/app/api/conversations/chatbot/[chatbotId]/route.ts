@@ -5,7 +5,7 @@ interface RouteContext {
     params: { chatbotId: string };
 }
 
-export async function GET(req: Request, { params }: RouteContext) {
+export async function GET(req: Request, { params }: { params: { chatbotId: string } }) {
     const { chatbotId } = params;
 
     try {

@@ -3,12 +3,6 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
-
-
-interface Ctx {
-    params: { chatbotId: string };
-}
-
 type GroupRow = {
     fileName: string | null;
     _count: { fileName: number };
@@ -16,7 +10,7 @@ type GroupRow = {
 };
 // GET /api/chatbots/:chatbotId/files
 // -> [{ fileName, docCount, latestAt }]
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(_req: Request, { params }: { params: { chatbotId: string } }) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
         return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });

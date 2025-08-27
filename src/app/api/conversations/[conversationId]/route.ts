@@ -3,14 +3,10 @@ import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 
-interface RouteContext {
-    params: {
-        conversationId: string;
-    }
-}
 
 
-export async function GET(req: Request, { params }: RouteContext) {
+
+export async function GET(req: Request, { params }: { params: { conversationId: string } }) {
     const session = await getServerSession(authOptions);
     if (!session || !session.user?.id) {
         return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
@@ -47,7 +43,7 @@ export async function GET(req: Request, { params }: RouteContext) {
     }
 }
 
-export async function DELETE(_req: Request, { params }: RouteContext) {
+export async function DELETE(_req: Request, { params }: { params: { conversationId: string } }) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 

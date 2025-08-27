@@ -3,9 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
-interface Ctx { params: { chatbotId: string } }
 
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(_req: Request, { params }: { params: { chatbotId: string } }) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
@@ -26,7 +25,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     }
 }
 
-export async function PATCH(req: Request, { params }: Ctx) {
+export async function PATCH(req: Request, { params }: { params: { chatbotId: string } }) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
     if (session.user.role !== "ADMIN") return NextResponse.json({ error: "İzin yok" }, { status: 403 });
@@ -60,7 +59,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(_req: Request, { params }: { params: { chatbotId: string } }) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
     const userId = session.user.id;
