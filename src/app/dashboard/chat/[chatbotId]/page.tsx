@@ -1,83 +1,139 @@
-'use client';
+// src/app/dashboard/chat/[chatbotId]/page.tsx
+"use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useSession } from "next-auth/react";
-import { redirect, useSearchParams } from "next/navigation";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, FormEvent } from "react";
+import { useSession, signIn } from "next-auth/react";
+import { useParams, useRouter } from "next/navigation";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 
-interface Message {
-    id: string;
-    role: "user" | "assistant";
-    content: string;
-}
+type Role = "user" | "assistant";
+interface Message { id: string; role: Role; content: string; }
 
 export default function ChatWithBotPage() {
-    const { chatbotId } = useParams() as { chatbotId: string };
+    const router = useRouter();
     const { status } = useSession({
         required: true,
-        onUnauthenticated() {
-            redirect("/signin");
-        },
+        onUnauthenticated() { signIn(); }, // redirect yerine
     });
+
+    // /dashboard/chat/[chatbotId] dinamik segment
+    const params = useParams();
+    const chatbotId = useMemo(() => {
+        const v = (params?.chatbotId ?? "") as string | string[];
+        return Array.isArray(v) ? v[0] : v;
+    }, [params]);
 
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [conversationId, setConversationId] = useState<string | null>(null);
+
     const messagesRef = useRef<HTMLDivElement>(null);
+    const abortRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
-        if (messagesRef.current) {
-            messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-        }
+        const el = messagesRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
     }, [messages]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    async function handleSubmit(e: FormEvent) {
         e.preventDefault();
         if (!input.trim() || isLoading) return;
+        if (!chatbotId) {
+            setMessages((prev) => [...prev, { id: `e_${Date.now()}`, role: "assistant", content: "Chatbot ID bulunamadı." }]);
+            return;
+        }
 
-        const userMessage: Message = {
-            id: Date.now().toString(),
-            role: "user",
-            content: input,
-        };
-
+        const userMessage: Message = { id: `u_${Date.now()}`, role: "user", content: input };
         setMessages((prev) => [...prev, userMessage]);
         setInput("");
         setIsLoading(true);
 
+        const controller = new AbortController();
+        abortRef.current = controller;
+
         try {
-            const res = await fetch("/api/chat", {
+            // ✅ Özel (auth’lı) stream endpoint
+            const res = await fetch("/api/chat/stream", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    messages: [...messages, userMessage],
+                    messages: [...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
                     chatbotId,
+                    conversationId,
                 }),
+                signal: controller.signal,
             });
 
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Sunucu hatası");
+            if (!res.ok || !res.body) {
+                const text = await res.text().catch(() => "");
+                throw new Error(text || "stream açılamadı");
+            }
 
-            const botMessage: Message = {
-                id: Date.now().toString() + "ai",
-                role: "assistant",
-                content: data.text,
+            // boş assistant mesajı ekle; gelen parçaları buna dolduracağız
+            const assistantId = `a_${Date.now()}`;
+            setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "" }]);
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+
+            let buffer = "";
+            let acc = "";
+
+            const flushUI = (txt: string) => {
+                setMessages((prev) => {
+                    const copy = [...prev];
+                    const last = copy[copy.length - 1];
+                    if (last && last.id === assistantId && last.role === "assistant") {
+                        copy[copy.length - 1] = { ...last, content: txt };
+                    }
+                    return copy;
+                });
             };
 
-            setMessages((prev) => [...prev, botMessage]);
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // __CID__ marker’ını güvenli işle (chunk sınırına bölünebilir)
+                const markerStart = buffer.lastIndexOf("\n__CID__");
+                if (markerStart === -1) {
+                    acc += buffer;
+                    flushUI(acc);
+                    buffer = "";
+                    continue;
+                }
+
+                const safeText = buffer.slice(0, markerStart);
+                acc += safeText;
+                flushUI(acc);
+                buffer = buffer.slice(markerStart);
+
+                const cidMatch = buffer.match(/__CID__:(\S+)/);
+                if (cidMatch) {
+                    setConversationId(cidMatch[1]);
+                    buffer = ""; // marker’ı göstermiyoruz
+                }
+            }
         } catch (err: any) {
             setMessages((prev) => [
                 ...prev,
-                {
-                    id: Date.now().toString() + "err",
-                    role: "assistant",
-                    content: err.message || "Bir hata oluştu.",
-                },
+                { id: `e_${Date.now()}`, role: "assistant", content: err?.message || "Üzgünüm, bir hata oluştu." },
             ]);
         } finally {
             setIsLoading(false);
+            abortRef.current = null;
         }
-    };
+    }
+
+    function handleStop() {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setIsLoading(false);
+    }
 
     if (status === "loading") {
         return <div className="flex justify-center items-center h-screen">Yükleniyor...</div>;
@@ -89,7 +145,16 @@ export default function ChatWithBotPage() {
                 {messages.map((m) => (
                     <div key={m.id} className={`chat ${m.role === "user" ? "chat-end" : "chat-start"}`}>
                         <div className={`chat-bubble ${m.role === "user" ? "chat-bubble-primary" : "chat-bubble-secondary"}`}>
-                            <p className="whitespace-pre-wrap">{m.content}</p>
+                            {m.role === "assistant"
+                                ? (
+                                    <div
+                                        className="prose max-w-none"
+                                        dangerouslySetInnerHTML={{
+                                            __html: DOMPurify.sanitize(marked.parse(m.content || "") as string),
+                                        }}
+                                    />
+                                )
+                                : <p className="whitespace-pre-wrap">{m.content}</p>}
                         </div>
                     </div>
                 ))}
@@ -110,11 +175,19 @@ export default function ChatWithBotPage() {
                     placeholder="Mesaj yaz..."
                     className="input input-bordered w-full"
                     disabled={isLoading}
+                    autoComplete="off"
                 />
                 <button type="submit" className="btn btn-primary" disabled={isLoading}>
                     Gönder
                 </button>
+                <button type="button" className="btn" onClick={handleStop} disabled={!isLoading}>
+                    Durdur
+                </button>
             </form>
+
+            <div className="text-center text-xs opacity-60 p-1">
+                {conversationId ? `Konuşma ID: ${conversationId}` : chatbotId ? `Bot: ${chatbotId}` : "Bot yok"}
+            </div>
         </div>
     );
 }

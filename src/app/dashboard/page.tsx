@@ -1,7 +1,6 @@
 'use client';
 
-import { useSession } from "next-auth/react";
-import { redirect } from "next/navigation";
+import { useSession, signIn } from "next-auth/react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import ChatbotList from "@/components/ChatbotList";
@@ -20,12 +19,12 @@ interface Chatbot {
 }
 
 export default function DashboardPage() {
-
     // 1) Auth guard
     const { status } = useSession({
         required: true,
         onUnauthenticated() {
-            redirect('/signin');
+            // redirect('/signin') client'ta yasak; signIn veya router.push kullan
+            signIn(); // varsayılan giriş sayfasına götürür
         },
     });
 
@@ -42,16 +41,23 @@ export default function DashboardPage() {
         if (status === 'authenticated') {
             fetch('/api/my-chatbots')
                 .then(res => res.ok ? res.json() : Promise.reject("Botlar yüklenemedi"))
-                .then(data => setChatbots(data))
+                .then(data => {
+                    setChatbots(data);
+                    // opsiyonel: ilk botu otomatik seç
+                    if (!selectedChatbotId && Array.isArray(data) && data.length) {
+                        setSelectedChatbotId(data[0].id);
+                    }
+                })
                 .catch(() => setChatbots([]));
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status, refreshKey]);
 
     // 4) Konuşmaları çek
     useEffect(() => {
         if (status === 'authenticated') {
             setIsLoading(true);
-            fetch('/api/conversations')
+            fetch('/api/conversations') // bu endpoint yoksa aşağıdaki GET dosyasını ekle
                 .then(res => res.ok ? res.json() : Promise.reject("Konuşmalar yüklenemedi"))
                 .then(data => {
                     setConversations(data);
@@ -73,7 +79,6 @@ export default function DashboardPage() {
 
     return (
         <div className="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 space-y-10">
-
             {/* ➕ Yeni Chatbot Oluştur Butonu */}
             <div className="flex justify-end">
                 <Link href="/dashboard/settings" className="btn btn-sm btn-outline">
@@ -123,7 +128,7 @@ export default function DashboardPage() {
                     <div className="space-y-4">
                         {conversations.map((convo) => (
                             <Link
-                                href={`/dashboard/${convo.id}`}
+                                href={`/conversations/${convo.id}`} // /dashboard/${id} değil!
                                 key={convo.id}
                                 className="block"
                             >
