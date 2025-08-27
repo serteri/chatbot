@@ -1,25 +1,29 @@
 
 
-import { getServerSession } from "next-auth/next";
+// src/app/conversations/[conversationId]/page.tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
+export default async function ConversationPage(props: any) {
+    // İmzayı tiplemiyoruz, destructuring yapmıyoruz
+    const params = (props as any)?.params;
+    const conversationId = typeof params?.conversationId === "string" ? params.conversationId : "";
 
-export default async function ConversationPage({params,}: { params: { conversationId: string };
-}) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) redirect("/signin");
+    if (!conversationId) notFound();
 
     const conv = await prisma.conversation.findUnique({
-        where: { id: params.conversationId, userId: session.user.id },
+        where: { id: conversationId, userId: session.user.id },
         select: { title: true, messages: true },
     });
     if (!conv) notFound();
 
-    // Güvenli mesaj süzme
     const messages = Array.isArray(conv.messages)
         ? conv.messages.filter(
             (m: any) =>
