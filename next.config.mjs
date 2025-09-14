@@ -1,6 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     eslint: { ignoreDuringBuilds: true },
+    experimental: {
+        // Native / CJS paketlerini server tarafında kullanabilmek için
+        serverComponentsExternalPackages: ['@napi-rs/canvas', 'tesseract.js'],
+    },
+    webpack: (config, { isServer }) => {
+        if (isServer) {
+            // .node dosyasını bundle ETME, runtime'da require edilsin
+            config.externals = config.externals || [];
+            config.externals.push('@napi-rs/canvas');
+        }
+        return config;
+    },
     images: {
         remotePatterns: [
             {
@@ -17,6 +29,7 @@ const nextConfig = {
         ],
     },
     reactStrictMode: true,
+
     async headers() {
         return [
             {

@@ -12,7 +12,7 @@ export async function GET() {
         where: { userId: session.user.id },
         select: { id: true, title: true, createdAt: true },
         orderBy: { createdAt: "desc" },
-        take: 100,
+        take: 200,
     });
 
     return Response.json(rows);

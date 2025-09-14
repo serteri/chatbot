@@ -10,32 +10,42 @@ export default async function ConversationsPage() {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) redirect("/signin");
 
-    const list = await prisma.conversation.findMany({
+    const rows = await prisma.conversation.findMany({
         where: { userId: session.user.id },
         select: { id: true, title: true, createdAt: true },
         orderBy: { createdAt: "desc" },
-        take: 50,
+        take: 200,
     });
 
     return (
-        <div className="p-6 max-w-3xl mx-auto">
-            <h1 className="text-2xl font-bold mb-4">Konuşmalar</h1>
+        <div className="max-w-4xl mx-auto p-6 space-y-6">
+            <h1 className="text-3xl font-bold">Konuşmalar</h1>
 
-            {!list.length && <div className="opacity-60">Henüz konuşma yok.</div>}
-
-            <ul className="space-y-2">
-                {list.map((c) => (
-                    <li key={c.id} className="flex items-center justify-between border rounded-lg p-3">
-                        <div>
-                            <div className="font-medium">{c.title || "(Başlıksız)"}</div>
-                            <div className="text-xs opacity-60">{new Date(c.createdAt).toLocaleString("tr-TR")}</div>
-                        </div>
-                        <Link href={`/conversations/${c.id}`} className="btn btn-sm btn-primary">
-                            Aç
+            {rows.length === 0 ? (
+                <div className="text-center p-8 bg-base-200 rounded-lg">
+                    <p>Henüz bir sohbet geçmişiniz bulunmuyor.</p>
+                    <div className="mt-4 space-x-2">
+                        <Link href="/dashboard/settings" className="btn btn-outline btn-sm">
+                            ➕ Yeni Chatbot Oluştur
                         </Link>
-                    </li>
-                ))}
-            </ul>
+                    </div>
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    {rows.map((c) => (
+                        <Link href={`/conversations/${c.id}`} key={c.id} className="block">
+                            <div className="card bg-base-100 shadow-md transition-all hover:shadow-xl hover:-translate-y-1">
+                                <div className="card-body p-4">
+                                    <h2 className="card-title text-lg">{c.title}</h2>
+                                    <p className="text-sm opacity-60">
+                                        {new Date(c.createdAt).toLocaleString("tr-TR")}
+                                    </p>
+                                </div>
+                            </div>
+                        </Link>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }

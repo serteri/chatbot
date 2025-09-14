@@ -1,45 +1,64 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+
 import { OpenAI } from "openai";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { isBlocked } from "@/lib/moderation";
+import { privateChatLimiter } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
+
 type Row = { content: string; distance: number };
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const embeddings = new OpenAIEmbeddings({
     openAIApiKey: process.env.OPENAI_API_KEY!,
     model: "text-embedding-3-small",
 });
 
-function cosineSimilarity(vecA: number[], vecB: number[]) {
-    let dot = 0, a = 0, b = 0;
-    if (vecA.length !== vecB.length) return 0;
-    for (let i = 0; i < vecA.length; i++) { dot += vecA[i] * vecB[i]; a += vecA[i] ** 2; b += vecB[i] ** 2; }
-    a = Math.sqrt(a); b = Math.sqrt(b);
-    if (!a || !b) return 0;
-    return dot / (a * b);
+// Basit sohbet/selamlama tespiti
+function isChitChat(s: string) {
+    const txt = (s || "").toLowerCase();
+    return /\b(hello|hi|hey|selam|merhaba|günaydın|iyi akşamlar|iyi geceler|nasılsın)\b/.test(txt);
 }
 
 export async function POST(req: Request) {
-
-
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return new Response("Yetkisiz", { status: 401 });
+
+    const userId = session.user.id;
+    const orgId = session.user.organizationId;
+
+    // Rate limit (güvenli; rateLimit.ts memory fallback içeriyor)
+    try {
+        const key = `user:${userId}`;
+        const { success, limit, remaining, reset } = await privateChatLimiter.limit(key);
+        if (!success) {
+            return new Response("Too Many Requests", {
+                status: 429,
+                headers: {
+                    "X-RateLimit-Limit": String(limit),
+                    "X-RateLimit-Remaining": String(remaining),
+                    "X-RateLimit-Reset": String(reset),
+                },
+            });
+        }
+    } catch {
+        // limiter patlarsa akışı kesme
+    }
 
     try {
         const { messages, conversationId, chatbotId } = await req.json();
 
-        const userId = session.user.id;
-        const orgId = session.user.organizationId;
-
         if (!chatbotId) {
             return new Response(JSON.stringify({ error: "Chatbot ID gerekli" }), {
-                status: 400, headers: { "Content-Type": "application/json" }
+                status: 400,
+                headers: { "Content-Type": "application/json" },
             });
         }
 
-        // bot erişimi
+        // bot erişimi (kullanıcı ve organizasyon filtresi)
         const bot = await prisma.chatbot.findFirst({
             where: { id: chatbotId, userId, organizationId: orgId },
             select: { id: true, mode: true, systemPrompt: true },
@@ -48,53 +67,48 @@ export async function POST(req: Request) {
 
         const userMessage = (messages as Array<{ role: string; content: string }>).at(-1)!;
 
-        const embedder = new OpenAIEmbeddings({
-            model: "text-embedding-3-small",
-            openAIApiKey: process.env.OPENAI_API_KEY!,
-        });
-        // RAG: embed + brute force cosine + mini rerank
-        const qEmb: number[] = await embedder.embedQuery(userMessage.content);
-        // const docs = await prisma.document.findMany({
-        //     where: { userId, chatbotId },
-        //     select: { content: true, embedding: true },
-        // });
+        // Moderation
+        if (await isBlocked(userMessage.content)) {
+            return new Response("blocked", { status: 400 });
+        }
 
-        const rows: Row[] = await prisma.$queryRaw<Row[]>`
-            SELECT "content",
-                   "embeddingVec" <=> ${qEmb}::vector AS distance
-            FROM "Document"
-            WHERE "chatbotId" = ${chatbotId}
-            ORDER BY "embeddingVec" <=> ${qEmb}::vector       -- cosine distance (küçük = daha benzer)
-                LIMIT 5;
-        `;
+        // RAG: pgvector ile en yakın 5
+        const qEmb: number[] = await embeddings.embedQuery(userMessage.content);
 
-// distance küçük = daha benzer; istersen "score" = 1 - distance yap
-        const top5 = rows.map(r => ({
-            content: r.content,
-            score: 1 - r.distance,
-        }));
+        const rows = await prisma.$queryRaw<Row[]>`
+      SELECT "content",
+             "embeddingVec" <=> ${qEmb}::vector AS distance
+      FROM "Document"
+      WHERE "chatbotId" = ${chatbotId}
+      ORDER BY "embeddingVec" <=> ${qEmb}::vector
+      LIMIT 5;
+    `;
 
+        // distance küçük = daha benzer; score = 1 - distance
+        const top5 = (rows || []).map((r) => ({ content: r.content, score: 1 - r.distance }));
+
+        // mini rerank (opsiyonel)
         let finalContext = "";
-        if (top5.length > 0) {
+        if (top5.length) {
             const rerankPrompt =
                 `Kullanıcı Sorusu: "${userMessage.content}"\n` +
-                `Aşağıda numaralandırılmış dokümanlar var. En alakalı olanın numarasını TEK sayı olarak döndür.\n\n` +
-                top5.map((d,i)=>`Doküman ${i+1}:\n"${d.content}"`).join("\n\n");
-            const rerank = await openai.chat.completions.create({
+                `Aşağıdaki dokümanlardan en ilgili olanın numarasını döndür.\n\n` +
+                top5.map((d, i) => `Doküman ${i + 1}:\n"${d.content}"`).join("\n\n");
+            const rr = await openai.chat.completions.create({
                 model: "gpt-4o-mini",
                 messages: [{ role: "system", content: rerankPrompt }],
                 temperature: 0,
             });
-            const m = rerank.choices[0].message.content?.match(/\d+/);
+            const m = rr.choices[0].message.content?.match(/\d+/);
             if (m) {
-                const idx = parseInt(m[0],10)-1;
+                const idx = parseInt(m[0], 10) - 1;
                 if (top5[idx]) finalContext = top5[idx].content;
             }
         }
 
         const isStrict = bot.mode === "STRICT";
 
-        // persist helper (konuşmayı günceller/oluşturur)
+        // Konuşma persist helper
         let currentConversationId: string | undefined = conversationId;
         const persist = async (aiText: string) => {
             if (currentConversationId) {
@@ -112,7 +126,7 @@ export async function POST(req: Request) {
             } else {
                 const created = await prisma.conversation.create({
                     data: {
-                        title: userMessage.content.substring(0,50),
+                        title: userMessage.content.substring(0, 50),
                         chatbot: { connect: { id: chatbotId } },
                         messages: [
                             { role: "user", content: userMessage.content },
@@ -126,21 +140,26 @@ export async function POST(req: Request) {
             return currentConversationId!;
         };
 
-        // STRICT + context yoksa tek cümle stream et ve bitir
+        // ✅ STRICT + context yok → profesyonel metinle cevapla
         if (isStrict && !finalContext) {
-            const text = "Üzgünüm, bu bilgi yüklediğiniz belgelerde bulunmuyor.";
+            const text = isChitChat(userMessage.content)
+                ? "Merhaba. Bu asistan STRICT modda çalışır ve yalnızca yüklediğiniz belgelere dayalı yanıt üretir. İlgili belgeyi ekledikten sonra sorunuzu yineleyin. Genel bilgi için HYBRID modunu kullanabilirsiniz."
+                : "Bu talep, mevcut belgelerde yer almıyor. Lütfen ilgili belgeyi ekledikten sonra tekrar deneyin. Genel bilgi yanıtları için HYBRID modunu kullanabilirsiniz.";
+
             const encoder = new TextEncoder();
             const stream = new ReadableStream({
                 async start(controller) {
                     controller.enqueue(encoder.encode(text));
                     const cid = await persist(text);
-                    controller.enqueue(encoder.encode(`\n__CID__:${cid}`)); // son satırda cid iletiyoruz
+                    controller.enqueue(encoder.encode(`\n__CID__:${cid}`));
                     controller.close();
-                }
+                },
             });
             return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
         }
 
+
+        // System prompt
         const baseBehavior = bot.systemPrompt?.trim()?.length
             ? bot.systemPrompt!.trim()
             : "Sen, yardımsever bir AI asistanısın.";
@@ -150,7 +169,7 @@ ${baseBehavior}
 
 Kurallar:
 ${isStrict
-            ? "- SADECE aşağıdaki kaynaklardan yanıt ver. Kaynak yoksa cevap verme."
+            ? "- SADECE aşağıdaki kaynaklardan yanıt ver. Kaynak yoksa cevap verme (sohbet/selamlamaya izin ver)."
             : "- Öncelikle kaynaklardan yanıt ver; kaynaklar yetersizse genel bilgini kullan."}
 
 KAYNAKLAR:
@@ -159,6 +178,7 @@ ${finalContext || "Yok"}
 ---
 `.trim();
 
+        // OpenAI stream
         const openaiStream = await openai.chat.completions.create({
             model: "gpt-4o",
             stream: true,
@@ -188,7 +208,7 @@ ${finalContext || "Yok"}
                 } finally {
                     controller.close();
                 }
-            }
+            },
         });
 
         return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });

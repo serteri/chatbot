@@ -2,83 +2,42 @@
 
 import React, { useState } from 'react';
 
-type Props = {
-    chatbotId: string;
-};
+type Props = { chatbotId: string };
 
 export default function DocumentUploader({ chatbotId }: Props) {
-    const [status, setStatus] = useState<string>('');
+    const [files, setFiles] = useState<FileList | null>(null);
     const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState<string>("");
 
-    async function extractTxtText(file: File) {
-        const text = await file.text();
-        return text;
-    }
+    async function onUpload(e: React.FormEvent) {
+        e.preventDefault();
+        setMsg("");
 
-    // 🔧 PDFJS v5 doğru kullanım
-    async function extractPdfText(pdfFile: File): Promise<string> {
-
-        const pdfjs: any = await import('pdfjs-dist');
-        const worker: any = await import('pdfjs-dist/build/pdf.worker.mjs');
-        pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-
-        const buf = await pdfFile.arrayBuffer();
-        const loadingTask = pdfjs.getDocument({ data: buf });
-        const pdf = await loadingTask.promise;
-
-        let full = '';
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const textContent = await page.getTextContent();
-            full += textContent.items.map((it: any) => it.str).join(' ') + '\n';
-        }
-        return full;
-    }
-
-    async function handleFile(file: File) {
-        setStatus('');
-        if (!chatbotId) {
-            setStatus('Lütfen bir chatbot seçin.');
-            return;
-        }
+        if (!chatbotId) return setMsg("Lütfen bir chatbot seçin.");
+        if (!files || files.length === 0) return setMsg("Lütfen dosya seçin (.pdf, .txt, .md).");
 
         try {
             setBusy(true);
 
-            let text = '';
-            if (file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')) {
-                text = await extractTxtText(file);
-            } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-                text = await extractPdfText(file);
+            const form = new FormData();
+            form.append("chatbotId", chatbotId);
+            Array.from(files).forEach((f) => form.append("files", f));
+
+            const res = await fetch("/api/documents/upload", { method: "POST", body: form });
+            const contentType = res.headers.get("content-type") || "";
+
+            if (res.ok) {
+                const data = contentType.includes("application/json") ? await res.json() : {};
+                setMsg(`✅ Yükleme tamamlandı. Parça sayısı: ${data?.chunks ?? "—"}`);
+                setFiles(null);
             } else {
-                setStatus('Sadece .txt ve .pdf destekleniyor.');
-                return;
+                const errText = contentType.includes("application/json")
+                    ? (await res.json())?.error ?? "Yükleme başarısız."
+                    : await res.text();
+                throw new Error(errText || "Yükleme başarısız.");
             }
-
-            if (!text.trim()) {
-                setStatus('Dosyadan metin çıkarılamadı.');
-                return;
-            }
-
-            // ingest API
-            const res = await fetch('/api/ingest', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    text,
-                    fileName: file.name,
-                    chatbotId,
-                    mimeType: file.type ?? null
-                }),
-            });
-
-            const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data?.error || 'Yükleme başarısız oldu.');
-            }
-            setStatus(data?.message || 'Yükleme tamam.');
-        } catch (e: any) {
-            setStatus(e?.message || 'Beklenmeyen hata.');
+        } catch (err: any) {
+            setMsg(`❌ Hata: ${err?.message || "Beklenmeyen hata."}`);
         } finally {
             setBusy(false);
         }
@@ -87,23 +46,51 @@ export default function DocumentUploader({ chatbotId }: Props) {
     return (
         <div className="p-4 border rounded-lg">
             <h3 className="font-semibold mb-2">Bilgi Bankasını Güncelle</h3>
-            <p className="text-sm mb-3">.txt veya .pdf dosyası yükleyerek AI’ı eğitin.</p>
+            <p className="text-sm mb-3">.txt / .md / .pdf dosyaları yükleyerek AI’ı eğitebilirsiniz.</p>
 
-            <input
-                type="file"
-                accept=".txt,.pdf"
-                disabled={busy}
-                onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void handleFile(f);
-                    e.currentTarget.value = '';
-                }}
-                className="file-input file-input-bordered w-full max-w-md"
-            />
+            <form onSubmit={onUpload} className="flex flex-col gap-3 max-w-xl">
+                <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.txt,.md"
+                    disabled={busy}
+                    onChange={(e) => setFiles(e.target.files)}
+                    className="file-input file-input-bordered w-full"
+                />
 
-            <div className="mt-3 text-sm">
-                {busy ? <span className="loading loading-dots loading-sm" /> : status}
-            </div>
+                {files && files.length > 0 && (
+                    <div className="text-xs opacity-80">
+                        <div className="font-medium mb-1">Seçili dosyalar:</div>
+                        <ul className="list-disc list-inside">
+                            {Array.from(files).map((f) => (
+                                <li key={f.name}>
+                                    {f.name} <span className="opacity-60">({Math.round(f.size / 1024)} KB)</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                    <button
+                        type="submit"
+                        className="btn btn-primary"
+                        disabled={busy || !files || files.length === 0 || !chatbotId}
+                    >
+                        {busy ? <span className="loading loading-spinner" /> : "Yükle"}
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => { setFiles(null); setMsg(""); }}
+                        disabled={busy}
+                    >
+                        Temizle
+                    </button>
+                </div>
+            </form>
+
+            {msg && <div className="mt-3 text-sm">{msg}</div>}
         </div>
     );
 }
