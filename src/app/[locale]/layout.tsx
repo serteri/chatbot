@@ -1,20 +1,21 @@
 import { Inter } from 'next/font/google';
 import { getMessages } from 'next-intl/server';
-import Providers from '@/components/provider';
+import Providers from '@/components/Providers';
 import Navbar from '@/components/Navbar';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
 
+// DEĞİŞİKLİK BURADA: 'params' objesini doğrudan alıyoruz.
 export default async function LocaleLayout({
                                                children,
-                                               params: {locale} // Parametreyi bu şekilde almak doğrudur
+                                               params
                                            }: {
     children: React.ReactNode;
     params: {locale: string};
 }) {
-    // getI18n gibi karmaşık fonksiyonlara gerek yok.
-    // getMessages() locale'i otomatik olarak anlar.
+    // DEĞİŞİKLİK BURADA: 'locale'i içeriden alıyoruz.
+    const { locale } = params;
     const messages = await getMessages();
 
     return (
