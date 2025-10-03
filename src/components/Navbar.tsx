@@ -1,10 +1,20 @@
 'use client';
 
-import Link from 'next/link';
+import { Link, useRouter, usePathname } from '@/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import { useRouter,usePathname } from 'next/navigation';
+import { useTranslations } from 'next-intl'; // next-intl'dan hook'u import ediyoruz
+
+// Bitiş tarihi ile bugün arasındaki farkı gün olarak hesaplayan yardımcı fonksiyon
+const getDaysRemaining = (endDate: any): number | null => {
+    if (!endDate) return null;
+    const end = new Date(endDate);
+    const now = new Date();
+    const diff = end.getTime() - now.getTime();
+    if (diff < 0) return 0; // Süre dolmuşsa 0 döndür
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+};
 
 const HamburgerIcon = () => (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -18,25 +28,30 @@ const CloseIcon = () => (
 );
 
 export default function Navbar() {
+    const t = useTranslations('Navbar'); // Çeviri fonksiyonunu aktif ediyoruz
     const { data: session, status } = useSession();
-    const router = useRouter();
+    const router = useRouter(); // Bu artık next-intl'in router'ı
+    const pathname = usePathname(); // Bu artık next-intl'in pathname'i
+
 
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [loadingBots, setLoadingBots] = useState(false);
     const [firstChatbotId, setFirstChatbotId] = useState<string | null>(null);
-// Navbar component içinde (state'lerin altında bir yere)
-    const PUBLIC_BOT_ID = process.env.NEXT_PUBLIC_PUBLIC_CHATBOT_ID; // build-time
+    const [daysLeft, setDaysLeft] = useState<number | null>(null);
+
+    const userPlan = (session?.user as any)?.plan;
+    const trialEndsAt = (session?.user as any)?.trialEndsAt;
+    const userRole = (session?.user as any)?.role;
+
+    const PUBLIC_BOT_ID = process.env.NEXT_PUBLIC_PUBLIC_CHATBOT_ID;
     const demoBotId = firstChatbotId || PUBLIC_BOT_ID || null;
     const demoHref = demoBotId ? `/public-chat?chatbotId=${demoBotId}` : "/public-chat";
 
-
-    const pathname = usePathname();
     useEffect(() => {
         setIsMenuOpen(false);
     }, [pathname]);
 
 
-    // Kullanıcının ilk chatbot’unu çek
     useEffect(() => {
         if (status !== 'authenticated') {
             setFirstChatbotId(null);
@@ -63,19 +78,23 @@ export default function Navbar() {
         return () => { alive = false; };
     }, [status]);
 
-    const handleStartChat = () => {
-        if (!firstChatbotId) {
-            alert('❗ Henüz bir chatbot seçmediniz/oluşturmadınız.');
-            return;
+    useEffect(() => {
+        if (trialEndsAt) {
+            setDaysLeft(getDaysRemaining(trialEndsAt));
+        } else {
+            setDaysLeft(null);
         }
-        router.push(`/chat?chatbotId=${firstChatbotId}`);
+    }, [trialEndsAt]);
+
+    const handleStartChat = () => {
+        router.push(`/dashboard`);
     };
 
     const navLinks = [
-        { href: '/about', label: 'Hakkımızda' },
-        { href: '/pricing', label: 'Fiyatlandırma' },
-        { href: '/faq', label: 'SSS' },
-        { href: '/contact', label: 'İletişim' },
+        { href: '/about', label: t('about') },
+        { href: '/pricing', label: t('pricing') },
+        { href: '/sss', label: t('faq') },
+        { href: '/contact', label: t('contact') },
     ];
 
     const getInitials = (name?: string | null) => {
@@ -88,70 +107,50 @@ export default function Navbar() {
         <nav className="bg-white shadow-md sticky top-0 z-50">
             <div className="max-w-7xl mx-auto px-4">
                 <div className="flex items-center justify-between h-16">
-                    {/* Logo */}
                     <div className="flex items-center">
-                        <Link href="/" className="text-2xl font-bold text-gray-800">
-                            ChatProjesi
+                        <Link href="/public" className="text-2xl font-bold text-gray-800">
+                            {t('brandName')}
                         </Link>
                     </div>
 
-                    {/* Desktop nav links */}
                     <div className="hidden md:flex items-center space-x-6">
                         {navLinks.map((link) => (
-                            <Link
-                                key={link.href}
-                                href={link.href}
-                                className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm"
-                            >
+                            <Link key={link.href} href={link.href} className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm">
                                 {link.label}
                             </Link>
                         ))}
-                        {/* YENİ: Genel Demo */}
-                        <Link
-                            href={demoHref}
-                            className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm"
-                        >
-                            Genel Demo
+                        <Link href={demoHref} className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm">
+                            {t('demo')}
                         </Link>
-                        <Link
-                            href="/conversations"
-                            className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm"
-                        >
-                            Konuşmalar
+                        <Link href="/conversations" className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm">
+                            {t('conversations')}
                         </Link>
-
-
-                        {session?.user?.role === 'ADMIN' && (
-                            <Link
-                                href="/admin"
-                                className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm"
-                            >
-                                Admin
+                        {userRole === 'ADMIN' && (
+                            <Link href="/admin" className="text-gray-600 hover:text-blue-600 transition-colors duration-300 font-medium text-sm">
+                                {t('admin')}
                             </Link>
                         )}
                     </div>
 
-                    {/* Right side */}
                     <div className="flex items-center">
                         <div className="hidden md:block">
                             {status === 'loading' ? (
                                 <div className="skeleton w-24 h-8" />
                             ) : session ? (
                                 <>
-                                    <button
-                                        onClick={handleStartChat}
-                                        className="btn btn-primary btn-sm mr-8"
-                                        disabled={loadingBots || !firstChatbotId}
-                                        title={!firstChatbotId ? 'Önce bir chatbot oluşturun' : 'Sohbete başla'}
-                                    >
-                                        Sohbete Başla
+                                    {userPlan === 'PRO' && typeof daysLeft === 'number' && daysLeft > 0 && (
+                                        <div className="badge badge-warning font-semibold mr-4">
+                                            {t('trialBadge', {daysLeft: daysLeft})}
+                                        </div>
+                                    )}
+                                    <button onClick={handleStartChat} className="btn btn-primary btn-sm mr-8" disabled={loadingBots} title={!firstChatbotId ? t('createBotFirstTooltip') : t('startChatTooltip')}>
+                                        {t('startChat')}
                                     </button>
-
                                     <div className="dropdown dropdown-end">
                                         <label tabIndex={0} className="btn btn-ghost btn-circle avatar">
                                             <div className="w-10 rounded-full">
                                                 {session.user?.image ? (
-                                                    <Image src={session.user.image} alt="Avatar" width={40} height={40} />
+                                                    <Image src={session.user.image} alt={t('avatarAlt')} width={40} height={40} />
                                                 ) : (
                                                     <div className="avatar placeholder">
                                                         <div className="bg-neutral text-neutral-content rounded-full w-10">
@@ -161,44 +160,36 @@ export default function Navbar() {
                                                 )}
                                             </div>
                                         </label>
-                                        <ul
-                                            tabIndex={0}
-                                            className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52"
-                                        >
+                                        <ul tabIndex={0} className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
                                             <li>
-                                                <Link href="/dashboard" className="font-semibold justify-between">
+                                                <div className="font-semibold justify-between pointer-events-none">
                                                     {session.user?.name}
-                                                    <span className="badge">Yeni</span>
-                                                </Link>
+                                                    <span className="badge">{t('newBadge')}</span>
+                                                </div>
                                             </li>
-                                            <li>
-                                                <Link href="/dashboard">Panelim</Link>
-                                            </li>
-                                            {session.user?.role === 'ADMIN' && (
+                                            {userPlan === 'PRO' && typeof daysLeft === 'number' && daysLeft > 0 && (
                                                 <li>
-                                                    <Link href="/admin">Admin</Link>
+                                                    <div className="text-xs text-orange-600 pointer-events-none px-4 py-2">
+                                                        {t('trialDropdown', {daysLeft: daysLeft})}
+                                                    </div>
                                                 </li>
                                             )}
                                             <div className="divider my-0" />
-                                            <li>
-                                                <button onClick={() => signOut({ callbackUrl: '/' })}>Çıkış Yap</button>
-                                            </li>
+                                            <li><Link href="/dashboard">{t('myPanel')}</Link></li>
+                                            {userRole === 'ADMIN' && (
+                                                <li><Link href="/admin">{t('admin')}</Link></li>
+                                            )}
+                                            <li><button onClick={() => signOut({ callbackUrl: '/' })}>{t('signOut')}</button></li>
                                         </ul>
                                     </div>
                                 </>
                             ) : (
-                                <Link href="/signin" className="btn btn-outline btn-primary btn-sm">
-                                    Giriş Yap
-                                </Link>
+                                <Link href="/signin" className="btn btn-outline btn-primary btn-sm">{t('signIn')}</Link>
                             )}
                         </div>
 
-                        {/* Mobile hamburger */}
                         <div className="md:hidden">
-                            <button
-                                onClick={() => setIsMenuOpen((v) => !v)}
-                                className="inline-flex items-center justify-center p-2 rounded-md text-gray-800 hover:bg-gray-100"
-                            >
+                            <button onClick={() => setIsMenuOpen((v) => !v)} className="inline-flex items-center justify-center p-2 rounded-md text-gray-800 hover:bg-gray-100">
                                 {isMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
                             </button>
                         </div>
@@ -206,80 +197,45 @@ export default function Navbar() {
                 </div>
             </div>
 
-            {/* Mobile menu */}
             {isMenuOpen && (
                 <div className="md:hidden fixed left-0 right-0 top-16 bottom-0 z-40 bg-white shadow-lg overflow-auto">
                     <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                         {navLinks.map((link) => (
-                            <Link
-                                key={link.href}
-                                href={link.href}
-                                className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium"
-                                onClick={() => setIsMenuOpen(false)}
-                            >
+                            <Link key={link.href} href={link.href} className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium" onClick={() => setIsMenuOpen(false)}>
                                 {link.label}
                             </Link>
                         ))}
-                        {/* YENİ: Genel Demo (mobile) */}
-                        <Link
-                            href={demoHref}
-                            className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium"
-                            onClick={() => setIsMenuOpen(false)}
-                        >
-                            Genel Demo
+                        <Link href={demoHref} className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium" onClick={() => setIsMenuOpen(false)}>
+                            {t('demo')}
                         </Link>
-                        <Link
-                            href="/conversations"
-                            className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium"
-                            onClick={() => setIsMenuOpen(false)}
-                        >
-                            Konuşmalar
+                        <Link href="/conversations" className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium" onClick={() => setIsMenuOpen(false)}>
+                            {t('conversations')}
                         </Link>
-
-                        {session?.user?.role === 'ADMIN' && (
-                            <Link
-                                href="/admin"
-                                className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium"
-                                onClick={() => setIsMenuOpen(false)}
-                            >
-                                Admin
+                        {userRole === 'ADMIN' && (
+                            <Link href="/admin" className="text-gray-600 hover:bg-gray-100 block px-3 py-2 rounded-md text-base font-medium" onClick={() => setIsMenuOpen(false)}>
+                                {t('admin')}
                             </Link>
                         )}
-
                         <div className="pt-4 mt-4 border-t border-gray-200">
                             {session ? (
                                 <div className="px-2">
                                     <p className="font-semibold">{session.user?.name}</p>
                                     <p className="text-sm text-gray-500">{session.user?.email}</p>
-
-                                    <button
-                                        onClick={() => {
-                                            handleStartChat();
-                                            setIsMenuOpen(false);
-                                        }}
-                                        className="btn btn-primary w-full mb-2"
-                                        disabled={loadingBots || !firstChatbotId}
-                                    >
-                                        Sohbete Başla
+                                    {userPlan === 'PRO' && typeof daysLeft === 'number' && daysLeft > 0 && (
+                                        <div className="badge badge-warning w-full my-3">
+                                            {t('trialMobile', {daysLeft: daysLeft})}
+                                        </div>
+                                    )}
+                                    <button onClick={() => { handleStartChat(); setIsMenuOpen(false); }} className="btn btn-primary w-full mt-2 mb-2" disabled={loadingBots}>
+                                        {t('startChat')}
                                     </button>
-
-                                    <button
-                                        onClick={() => {
-                                            signOut({ callbackUrl: '/' });
-                                            setIsMenuOpen(false);
-                                        }}
-                                        className="w-full btn btn-error btn-sm mt-2"
-                                    >
-                                        Çıkış Yap
+                                    <button onClick={() => { signOut({ callbackUrl: '/' }); setIsMenuOpen(false); }} className="w-full btn btn-error btn-sm mt-2">
+                                        {t('signOut')}
                                     </button>
                                 </div>
                             ) : (
-                                <Link
-                                    href="/signin"
-                                    className="btn btn-primary w-full"
-                                    onClick={() => setIsMenuOpen(false)}
-                                >
-                                    Giriş Yap
+                                <Link href="/signin" className="btn btn-primary w-full" onClick={() => setIsMenuOpen(false)}>
+                                    {t('signIn')}
                                 </Link>
                             )}
                         </div>

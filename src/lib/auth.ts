@@ -1,11 +1,13 @@
+// src/lib/auth.ts (BÜTÜN VE TAM HALİ)
+
 import { type NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 import AzureADProvider from "next-auth/providers/azure-ad"
 import GitHubProvider from "next-auth/providers/github"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { PrismaAdapter } from "@next-auth/prisma-adapter" // <-- 1. Adaptörü import et
-import prisma from "./prisma" // <-- 2. Prisma client'ımızı import et
-import { compare } from "bcrypt"; // bcrypt'i import ediyoruz
+import { PrismaAdapter } from "@next-auth/prisma-adapter"
+import prisma from "./prisma"
+import { compare } from "bcrypt";
 
 
 interface ExtendedUser {
@@ -41,16 +43,13 @@ export const authOptions: NextAuthOptions = {
             clientId: process.env.GOOGLE_CLIENT_ID as string,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
             allowDangerousEmailAccountLinking: true,
-            // ─── Zorunlu hesap seçimini aktif et ───────────────────────────
-              authorization: {
-            params: {
-                  prompt: "select_account",
-                      // dilersen access_type ve response_type da ekleyebilirsin:
-                          access_type: "offline",
-                      response_type: "code",
-                    },
-          },
-
+            authorization: {
+                params: {
+                    prompt: "select_account",
+                    access_type: "offline",
+                    response_type: "code",
+                },
+            },
         }),
         AzureADProvider({
             clientId: process.env.MICROSOFT_CLIENT_ID as string,
@@ -69,9 +68,7 @@ export const authOptions: NextAuthOptions = {
             allowDangerousEmailAccountLinking: true,
             authorization: {
                 params: {
-                    allow_signup: "true",   // İstersen false yapıp yeni kaydı kapatabilirsin
-                    // GitHub şu an `prompt=select_account` desteklemiyor,
-                    // ama `prompt=login` ile her seferinde parola isteyebilirsin:
+                    allow_signup: "true",
                     prompt: "login",
                 },
             },
@@ -86,34 +83,28 @@ export const authOptions: NextAuthOptions = {
                              req: any): Promise<any>  {
                 console.log("Authorize fonksiyonu çalıştı. Credentials:", credentials);
 
-
                 if (!credentials?.email || !credentials?.password) {
                     console.log("Email veya şifre eksik.");
                     return null;
                 }
 
-                // Prisma ile veritabanından kullanıcıyı bul
                 const user = await prisma.user.findUnique({
                     where: { email: credentials.email }
                 });
 
-                // Eğer kullanıcı yoksa veya şifresi (henüz) yoksa (örn: Google ile kaydolmuşsa)
                 if (!user || !user.hashedPassword) {
                     console.log("Kullanıcı bulunamadı veya şifresi yok.");
                     return null;
                 }
 
-                // Girilen şifre ile veritabanındaki hash'lenmiş şifreyi karşılaştır
                 const isPasswordValid = await compare(credentials.password, user.hashedPassword);
                 console.log("Şifre geçerli mi?:", isPasswordValid);
 
                 if (!isPasswordValid) {
                     console.log("Giriş başarılı, kullanıcı objesi döndürülüyor.");
-                    // Eğer şifre doğruysa, kullanıcı objesini döndür
                     return null;
                 }
                 console.log("Şifre yanlış.");
-                // Eğer şifre yanlışsa
                 return {
                     id:             user.id,
                     name:           user.name,
@@ -129,57 +120,102 @@ export const authOptions: NextAuthOptions = {
     ],
     callbacks: {
         async jwt({token, user}) {
+            console.log("--- JWT Callback Başladı ---");
             try {
-                // İlk turda user gelebilir; sonraki turlarda token.sub/id var
-                const userId =
-                    (user as any)?.id ??
-                    (typeof token.sub === "string" ? token.sub : undefined) ??
-                    (typeof (token as any).id === "string" ? (token as any).id : undefined);
+                const userId = (user as any)?.id ?? token.sub;
 
                 if (userId) {
-                    const dbUser = await prisma.user.findUnique({
+                    console.log(`Kullanıcı ID bulundu: ${userId}`);
+                    let dbUser = await prisma.user.findUnique({
                         where: {id: userId},
-                        select: {id: true, role: true, plan: true, organizationId: true},
+                        select: {id: true, role: true, plan: true, organizationId: true, trialEndsAt: true},
                     });
+                    console.log("Veritabanından kullanıcı çekildi:", dbUser);
+                    if (dbUser && dbUser.plan === 'FREE' && !dbUser.trialEndsAt) {
+                        const fourteenDaysFromNow = new Date();
+                        fourteenDaysFromNow.setDate(fourteenDaysFromNow.getDate() + 14);
 
+                        dbUser = await prisma.user.update({
+                            where: { id: dbUser.id },
+                            data: {
+                                plan: 'PRO',
+                                trialEndsAt: fourteenDaysFromNow,
+                            }
+                        });
+                    }
                     if (dbUser) {
                         (token as any).id = dbUser.id;
                         (token as any).role = dbUser.role;
                         (token as any).plan = dbUser.plan;
-                        (token as any).organizationId = dbUser.organizationId; // string | null
-                    }
-                    if (dbUser && !dbUser.organizationId) {
-                        try {
-                            const org = await prisma.organization.create({
-                                data: { name: `${dbUser.id.slice(0,6)} Org` },
-                                select: { id: true },
-                            });
-                            await prisma.user.update({
-                                where: { id: dbUser.id },
-                                data: { organizationId: org.id },
-                            });
-                            (token as any).organizationId = org.id;
-                        } catch (err) {
-                            console.error("auto-provision org error:", err);
+                        (token as any).organizationId = dbUser.organizationId;
+                        (token as any).trialEndsAt = dbUser.trialEndsAt;
+
+                        // EN ÖNEMLİ KISIM BURASI
+                        if (!dbUser.organizationId) {
+                            console.log("KULLANICININ organizationId'si YOK! Yeni bir tane oluşturulacak...");
+                            try {
+                                const org = await prisma.organization.create({
+                                    data: { name: `${dbUser.id.slice(0,6)} Org` },
+                                    select: { id: true },
+                                });
+                                console.log(`Yeni organizasyon oluşturuldu: ${org.id}`);
+
+                                await prisma.user.update({
+                                    where: { id: dbUser.id },
+                                    data: { organizationId: org.id },
+                                });
+                                console.log(`Kullanıcı yeni organizasyon ID'si ile güncellendi.`);
+
+                                (token as any).organizationId = org.id;
+
+                            } catch (err) {
+                                // Hatanın ne olduğunu görelim
+                                console.error("!!! OTOMATİK ORGANİZASYON OLUŞTURMA HATASI:", err);
+                            }
+                        } else {
+                            console.log(`Kullanıcının organizationId'si zaten var: ${dbUser.organizationId}`);
                         }
                     }
-
-
                 }
             } catch (e) {
-                console.error("jwt callback fetch user error:", e);
+                console.error("!!! JWT Callback ana try-catch hatası:", e);
             }
+            console.log("--- JWT Callback Bitti, Token:", token);
             return token;
         },
 
         async session({session, token}) {
             if (session.user) {
-                (session.user as any).id = ((token as any).id as string) ?? token.sub;
-                (session.user as any).role = (token as any).role as Role | undefined;
-                (session.user as any).plan = (token as any).plan as Plan | undefined;
-                (session.user as any).organizationId = (token as any).organizationId as string | null | undefined;
+                const sUser = session.user as any;
+                sUser.id = token.id;
+                sUser.role = token.role;
+                sUser.plan = token.plan;
+                sUser.organizationId = token.organizationId;
+                sUser.trialEndsAt = token.trialEndsAt;
             }
             return session;
         },
-    }
+    },
+
+    // --- YENİ EKLENEN KISIM (ÜCRETSİZ DENEME İÇİN) ---
+    events: {
+        // Bir kullanıcı veritabanında İLK KEZ oluşturulduğunda bu fonksiyon çalışır.
+        createUser: async ({ user }) => {
+            // 14 günlük deneme süresi için bitiş tarihini hesapla
+            const fourteenDaysFromNow = new Date();
+            fourteenDaysFromNow.setDate(fourteenDaysFromNow.getDate() + 14);
+
+            // Yeni kullanıcının planını 'PRO' olarak ayarla ve deneme bitiş tarihini kaydet.
+            await prisma.user.update({
+                where: {
+                    id: user.id,
+                },
+                data: {
+                    plan: 'PRO', // Kullanıcı deneme süresince PRO özelliklerine sahip olacak.
+                    trialEndsAt: fourteenDaysFromNow,
+                },
+            });
+        },
+    },
+    // --- BİTİŞ ---
 };

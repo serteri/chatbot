@@ -1,71 +1,53 @@
-import { getServerSession } from "next-auth";
+// src/app/api/chatbots/route.ts (HATA AYIKLAMA VERSİYONU)
+
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
-
     const session = await getServerSession(authOptions);
-    if (!session || !session.user?.id) {
-        return new NextResponse(JSON.stringify({ error: "Yetkisiz" }), { status: 401 });
+    const user = session?.user as any;
+
+    // --- YENİ EKLENEN HATA AYIKLAMA KODU ---
+    console.log("--- YENİ CHATBOT OLUŞTURMA API KONTROLÜ ---");
+    console.log("Alınan Session Nesnesi:", session);
+    console.log("Session içindeki User Nesnesi:", user);
+    console.log("Kullanılacak Organization ID:", user?.organizationId);
+    console.log("-----------------------------------------");
+    // --- BİTİŞ ---
+
+    if (!user?.id || !user?.organizationId) {
+        // Eğer bu hata mesajını alırsak, session'da organizationId'nin olmadığını anlarız.
+        console.error("Hata: Oturumda user.id veya user.organizationId bulunamadı.");
+        return NextResponse.json({ error: "Yetkisiz erişim veya eksik organizasyon bilgisi." }, { status: 401 });
     }
+    const userId = user.id;
+    const organizationId = user.organizationId;
 
-    const userId = session.user.id;
-    const orgId  = session.user.organizationId;
     try {
-        // Gelen veriyi al
-        const { name, systemPrompt } = await req.json();
+        const body = await req.json();
+        const { name } = body;
 
-        // Validasyon
-        if (!name || name.trim().length < 2) {
-            return new NextResponse(JSON.stringify({ error: "Geçerli bir isim girin" }), { status: 400 });
+        if (!name) {
+            return NextResponse.json({ error: "Chatbot adı gerekli." }, { status: 400 });
         }
 
-        // Chatbot'u oluştur
+        console.log(`Veritabanına kaydedilecek veriler: name=${name}, userId=${userId}, organizationId=${organizationId}`);
+
         const newChatbot = await prisma.chatbot.create({
             data: {
                 userId,
-                organizationId: orgId,
-                name: name.trim(),
-                systemPrompt: systemPrompt?.trim() || "", // boş olabilir
-            }
+                organizationId, // Chatbot'u oluştururken organizasyon ID'sini de kaydediyoruz
+                name,
+            },
         });
 
-        // Başarılı yanıt
-        return new NextResponse(JSON.stringify(newChatbot), {
-            status: 201,
-            headers: { "Content-Type": "application/json" },
-        });
+        console.log("Yeni chatbot başarıyla oluşturuldu:", newChatbot);
 
+        return NextResponse.json(newChatbot, { status: 201 });
     } catch (error) {
-        console.error("Chatbot oluşturulurken hata:", error);
-        return new NextResponse(JSON.stringify({ error: "Sunucu hatası" }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-        });
-    }
-}
-
-export async function GET(req: Request) {
-    const session = await getServerSession(authOptions);
-
-    if (!session || !session.user?.id) {
-        return new NextResponse(JSON.stringify({ error: "Yetkisiz" }), { status: 401 });
-    }
-
-    const userId = session.user.id;
-    const orgId  = session.user.organizationId;  // artık var
-
-    try {
-        const chatbots = await prisma.chatbot.findMany({
-            where: { userId ,organizationId: orgId,},
-            orderBy: { createdAt: 'desc' },
-            select: { id: true, name: true },
-        });
-
-        return NextResponse.json(chatbots);
-    } catch (error) {
-        console.error("Chatbotları alırken hata:", error);
-        return new NextResponse(JSON.stringify({ error: "Sunucu hatası" }), { status: 500 });
+        console.error("!!! Chatbot oluşturma hatası:", error);
+        return NextResponse.json({ error: "Sunucuda bir hata oluştu." }, { status: 500 });
     }
 }

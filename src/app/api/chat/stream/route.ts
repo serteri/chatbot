@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     }
 
     try {
-        const { messages, conversationId, chatbotId } = await req.json();
+        const { messages, conversationId, chatbotId,mode } = await req.json();
 
         if (!chatbotId) {
             return new Response(JSON.stringify({ error: "Chatbot ID gerekli" }), {
@@ -106,7 +106,8 @@ export async function POST(req: Request) {
             }
         }
 
-        const isStrict = bot.mode === "STRICT";
+        const effectiveMode = mode || bot.mode;
+        const isStrict = effectiveMode === "STRICT";
 
         // Konuşma persist helper
         let currentConversationId: string | undefined = conversationId;

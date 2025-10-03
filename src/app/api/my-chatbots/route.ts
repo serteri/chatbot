@@ -1,29 +1,27 @@
-import { getServerSession } from "next-auth";
+// src/app/api/my-chatbots/route.ts
+
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { NextResponse } from "next/server";
-import { getParamFromUrl } from "@/lib/routeParams";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
     const session = await getServerSession(authOptions);
-    if (!session || !session.user?.id) {
-        return new NextResponse(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
+    if (!session?.user?.id) {
+        return NextResponse.json([], { status: 401 });
     }
     const userId = session.user.id;
-    const orgId  = session.user.organizationId;
 
     try {
         const chatbots = await prisma.chatbot.findMany({
-            where: { userId:session.user.id, organizationId: orgId },
-            select: { id: true, name: true },
-            orderBy: { createdAt: "desc" },
+            where: { userId },
+            orderBy: { createdAt: 'desc' }, // En yeniden eskiye sırala
         });
-
         return NextResponse.json(chatbots);
     } catch (error) {
-        console.error("Chatbot listesi alınamadı:", error);
-        return new NextResponse(JSON.stringify({ error: "Sunucu hatası" }), {
-            status: 500,
-        });
+        console.error("Chatbot listeleme hatası:", error);
+        return NextResponse.json({ error: "Sunucuda bir hata oluştu." }, { status: 500 });
     }
 }

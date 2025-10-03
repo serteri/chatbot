@@ -1,45 +1,55 @@
+// src/app/api/documents/route.ts
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
+// GET /api/documents?chatbotId=...
 export async function GET(req: Request) {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.id) return new Response("Yetkisiz", { status: 401 });
 
+    // UI'ın kolaylığı için yetkisiz/eksik parametre durumunda 200 + [] dönüyoruz
+    if (!session?.user?.id) return NextResponse.json([]);
     const { searchParams } = new URL(req.url);
-    const chatbotId = searchParams.get("chatbotId") || "";
-    if (!chatbotId) return new Response("chatbotId gerekli", { status: 400 });
+    const chatbotId = (searchParams.get("chatbotId") || "").trim();
+    if (!chatbotId) return NextResponse.json([]);
 
+    const userId = session.user.id;
+
+    // fileName’e göre gruplayıp parça sayısını getir
     const rows = await prisma.document.groupBy({
         by: ["fileName"],
-        where: { chatbotId, userId: session.user.id },
+        where: { chatbotId, userId },
         _count: { fileName: true },
     });
 
-    return Response.json(rows.map(r => ({ fileName: r.fileName, count: r._count.fileName })));
+    const shaped = rows.map(r => ({
+        fileName: r.fileName ?? "(isimsiz)",
+        count: r._count.fileName,
+    }));
+
+    return NextResponse.json(shaped);
 }
 
+// DELETE /api/documents?chatbotId=...&fileName=...
 export async function DELETE(req: Request) {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.id) return new Response("Yetkisiz", { status: 401 });
+    if (!session?.user?.id) return new NextResponse("Yetkisiz", { status: 401 });
 
     const { searchParams } = new URL(req.url);
-    const chatbotId = searchParams.get("chatbotId") || "";
-    const fileName = searchParams.get("fileName") || "";
-    if (!chatbotId || !fileName) return new Response("chatbotId ve fileName gerekli", { status: 400 });
+    const chatbotId = (searchParams.get("chatbotId") || "").trim();
+    const fileName = (searchParams.get("fileName") || "").trim();
+    if (!chatbotId || !fileName) {
+        return new NextResponse("chatbotId ve fileName gerekli", { status: 400 });
+    }
 
-    // Sahiplik doğrulama
-    const bot = await prisma.chatbot.findFirst({
-        where: { id: chatbotId, userId: session.user.id, organizationId: session.user.organizationId || undefined },
-        select: { id: true },
-    });
-    if (!bot) return new Response("Erişim yok (bot)", { status: 403 });
-
-    const del = await prisma.document.deleteMany({
-        where: { chatbotId, userId: session.user.id, fileName },
+    const userId = session.user.id;
+    const deleted = await prisma.document.deleteMany({
+        where: { userId, chatbotId, fileName },
     });
 
-    return Response.json({ ok: true, deleted: del.count });
+    return NextResponse.json({ deleted: deleted.count });
 }

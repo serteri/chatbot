@@ -1,191 +1,138 @@
-'use client';
+// src/components/ChatbotFiles.tsx (TÜM DEĞİŞİKLİKLERLE NİHAİ HALİ)
 
-import { useEffect, useState } from "react";
+"use client";
 
-type FileItem = {
+import React, { useState } from 'react';
+import ConfirmationModal from './ConfirmationModal'; // Özel modal bileşenimizi import ediyoruz
+
+// Tip tanımları
+type FileGroup = {
     fileName: string;
     docCount: number;
     lastUpdatedAt: string | null;
 };
 
-export default function ChatbotFiles({ chatbotId }: { chatbotId: string }) {
-    const [items, setItems] = useState<FileItem[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [selectedFile, setSelectedFile] = useState<string | null>(null);
-    const [refreshKey, setRefreshKey] = useState(0);
-
-    useEffect(() => {
-        if (!chatbotId) return;
-        let alive = true;
-        (async () => {
-            try {
-                setLoading(true);
-                const res = await fetch(`/api/chatbots/${chatbotId}/files`, { cache: "no-store" });
-                const data = await res.json();
-                if (!alive) return;
-                setItems(Array.isArray(data.items) ? data.items : []);
-            } catch {
-                if (alive) setItems([]);
-            } finally {
-                if (alive) setLoading(false);
-            }
-        })();
-        return () => { alive = false; };
-    }, [chatbotId, refreshKey]);
-
-    async function handleDelete(fileName: string) {
-        if (!confirm(`'${fileName}' dosyasının TÜM parçalarını silmek istediğinize emin misiniz?`)) return;
-        const res = await fetch(`/api/chatbots/${chatbotId}/files?fileName=${encodeURIComponent(fileName)}`, {
-            method: "DELETE",
-        });
-        const data = await res.json();
-        if (!res.ok) {
-            alert(data?.error || "Silme hatası");
-            return;
-        }
-        // listeyi yenile
-        setRefreshKey((k) => k + 1);
-    }
-
-    return (
-        <div className="card bg-base-100 shadow">
-            <div className="card-body">
-                <h3 className="card-title text-lg">Yüklenen Dosyalar</h3>
-
-                {loading ? (
-                    <div className="skeleton h-16 w-full" />
-                ) : items.length === 0 ? (
-                    <p className="text-sm opacity-70">Henüz dosya yüklenmemiş.</p>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="table table-zebra">
-                            <thead>
-                            <tr>
-                                <th>Dosya</th>
-                                <th>Parça Sayısı</th>
-                                <th>Son Güncelleme</th>
-                                <th className="text-right">İşlemler</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            {items.map((it) => (
-                                <tr key={it.fileName}>
-                                    <td className="font-medium">{it.fileName}</td>
-                                    <td>{it.docCount}</td>
-                                    <td>{it.lastUpdatedAt ? new Date(it.lastUpdatedAt).toLocaleString() : "-"}</td>
-                                    <td className="text-right space-x-2">
-                                        <button
-                                            className="btn btn-xs btn-outline"
-                                            onClick={() => setSelectedFile(it.fileName)}
-                                        >
-                                            Parçaları gör
-                                        </button>
-                                        <button
-                                            className="btn btn-xs btn-error"
-                                            onClick={() => handleDelete(it.fileName)}
-                                        >
-                                            Sil (toplu)
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-
-                {selectedFile && (
-                    <FileChunksModal
-                        chatbotId={chatbotId}
-                        fileName={selectedFile}
-                        onClose={() => setSelectedFile(null)}
-                        onAnyDelete={() => setRefreshKey((k) => k + 1)}
-                    />
-                )}
-            </div>
-        </div>
-    );
-}
-
-/** Modal: tek dosyanın parçalarını gösterir ve tek tek silmeyi sağlar */
-function FileChunksModal({
-                             chatbotId,
-                             fileName,
-                             onClose,
-                             onAnyDelete,
-                         }: {
+type Props = {
     chatbotId: string;
-    fileName: string;
-    onClose: () => void;
-    onAnyDelete?: () => void;
-}) {
-    const [chunks, setChunks] = useState<
-        { id: string; chunkIndex: number | null; createdAt: string; preview: string }[]
-    >([]);
-    const [loading, setLoading] = useState(false);
-    const [refreshKey, setRefreshKey] = useState(0);
+    filesData: any;
+    isLoading: boolean;
+    error: any;
+    onDeleteSuccess?: () => void;
+    onRefreshRequest?: () => void;
+};
 
-    useEffect(() => {
-        let alive = true;
-        (async () => {
-            try {
-                setLoading(true);
-                const res = await fetch(
-                    `/api/chatbots/${chatbotId}/file-chunks?fileName=${encodeURIComponent(fileName)}`,
-                    { cache: "no-store" }
-                );
-                const data = await res.json();
-                if (!alive) return;
-                setChunks(Array.isArray(data.chunks) ? data.chunks : []);
-            } catch {
-                if (alive) setChunks([]);
-            } finally {
-                if (alive) setLoading(false);
+export default function ChatbotFiles({ chatbotId, filesData, isLoading, error, onDeleteSuccess, onRefreshRequest }: Props) {
+    // Modal'ın durumunu ve hangi dosyanın silineceğini yönetmek için state'ler
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [fileToDelete, setFileToDelete] = useState<FileGroup | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    // Bu fonksiyon sadece modal'ı açmak için kullanılır
+    const handleOpenDeleteModal = (file: FileGroup) => {
+        setFileToDelete(file); // Hangi dosyayı sileceğimizi state'e kaydediyoruz
+        setIsModalOpen(true);  // Modal'ı görünür yapıyoruz
+    };
+
+    // Modal'daki "Onayla" butonuna basıldığında bu fonksiyon çalışır
+    const confirmDeletion = async () => {
+        if (!fileToDelete) return;
+
+        setIsDeleting(true);
+        try {
+            const response = await fetch(
+                `/api/chatbots/${chatbotId}/files?fileName=${encodeURIComponent(fileToDelete.fileName)}`,
+                { method: 'DELETE' }
+            );
+
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || "Dosya silinemedi.");
             }
-        })();
-        return () => { alive = false; };
-    }, [chatbotId, fileName, refreshKey]);
 
-    async function deleteChunk(id: string) {
-        if (!confirm("Bu parçayı silmek istediğinize emin misiniz?")) return;
-        const res = await fetch(`/api/documents/${id}`, { method: "DELETE" });
-        const data = await res.json();
-        if (!res.ok) {
-            alert(data?.error || "Silme hatası");
-            return;
+            onDeleteSuccess?.(); // Silme başarılı, listeyi yenilemesi için üst bileşeni tetikle
+        } catch (err: any) {
+            // Hata durumunda tarayıcının standart alert'ini kullanabiliriz
+            alert(`Hata: ${err.message}`);
+        } finally {
+            setIsDeleting(false);
+            // İşlem bitince modal'ı her durumda kapat
+            setIsModalOpen(false);
+            setFileToDelete(null);
         }
-        setRefreshKey((k) => k + 1);
-        onAnyDelete?.();
-    }
+    };
+
+    // Modal'dan "İptal" butonuna basıldığında veya kapatıldığında
+    const cancelDeletion = () => {
+        setIsModalOpen(false);
+        setFileToDelete(null);
+    };
 
     return (
-        <div className="modal modal-open">
-            <div className="modal-box max-w-4xl">
-                <h3 className="font-bold text-lg mb-2">Parçalar: {fileName}</h3>
-                {loading ? (
-                    <div className="skeleton h-20 w-full" />
-                ) : chunks.length === 0 ? (
-                    <p className="text-sm opacity-70">Parça bulunamadı.</p>
-                ) : (
-                    <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-                        {chunks.map((c) => (
-                            <div key={c.id} className="p-3 border rounded flex items-start gap-3">
-                                <div className="text-xs opacity-60 w-28 shrink-0">
-                                    #{c.chunkIndex ?? "-"}<br />
-                                    {new Date(c.createdAt).toLocaleString()}
-                                </div>
-                                <div className="flex-1 text-sm whitespace-pre-wrap">{c.preview}</div>
-                                <button className="btn btn-xs btn-error" onClick={() => deleteChunk(c.id)}>
-                                    Sil
-                                </button>
-                            </div>
-                        ))}
+        // Bileşeni bir React Fragment (<>...</>) içine alıyoruz ki modal'ı da ekleyebilelim
+        <>
+            <div className="card bg-base-100 shadow-lg">
+                <div className="card-body">
+                    <div className="flex items-center justify-between">
+                        <h3 className="card-title">Yüklenmiş Dosyalar</h3>
+                        <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={() => onRefreshRequest?.()}
+                            disabled={isLoading}
+                        >
+                            Yenile
+                        </button>
                     </div>
-                )}
-                <div className="modal-action">
-                    <button className="btn" onClick={onClose}>Kapat</button>
+
+                    {error && <div className="alert alert-error">Dosyalar yüklenemedi.</div>}
+                    {isLoading && <div className="skeleton h-24 w-full" />}
+                    {!isLoading && !error && (!filesData?.items || filesData.items.length === 0) && (
+                        <p className="text-sm opacity-70">Bu chatbot için henüz bir dosya yüklenmemiş.</p>
+                    )}
+                    {!isLoading && !error && filesData?.items && filesData.items.length > 0 && (
+                        <div className="overflow-x-auto">
+                            <table className="table table-zebra">
+                                <thead>
+                                <tr>
+                                    <th>Dosya Adı</th>
+                                    <th>Parça Sayısı</th>
+                                    <th>Son Yükleme</th>
+                                    <th>İşlemler</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                {filesData.items.map((group: FileGroup) => (
+                                    <tr key={group.fileName}>
+                                        <td className="font-medium">{group.fileName}</td>
+                                        <td>{group.docCount}</td>
+                                        <td>{group.lastUpdatedAt ? new Date(group.lastUpdatedAt).toLocaleString('tr-TR') : '-'}</td>
+                                        <td className="text-right">
+                                            {/* DÜZELTME: Butonun onClick'i artık doğru fonksiyonu çağırıyor */}
+                                            <button
+                                                className="btn btn-sm btn-error btn-outline"
+                                                onClick={() => handleOpenDeleteModal(group)}
+                                            >
+                                                Sil
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
             </div>
-        </div>
+
+            {/* EKLENDİ: Modal bileşenini sayfamıza ekliyoruz ve state'lere bağlıyoruz */}
+            <ConfirmationModal
+                isOpen={isModalOpen}
+                title="Dosyayı Silmeyi Onayla"
+                message={`'${fileToDelete?.fileName}' adlı dosyanın tüm parçalarını kalıcı olarak silmek istediğinizden emin misiniz?`}
+                onConfirm={confirmDeletion}
+                onCancel={cancelDeletion}
+                confirmText="Evet, Sil"
+                isConfirming={isDeleting}
+            />
+        </>
     );
 }

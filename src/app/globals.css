@@ -1,4 +1,0 @@
-@import "tailwindcss";
-@plugin "daisyui";
-/* İsteğe bağlı: body arka planı ve font smoothing */
-html, body { height: 100%; }

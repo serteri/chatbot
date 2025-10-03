@@ -1,9 +1,13 @@
+// src/app/api/chat/route.ts
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { OpenAI } from "openai";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { Prisma } from "@prisma/client";
+
+export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const embeddings = new OpenAIEmbeddings({
@@ -11,7 +15,7 @@ const embeddings = new OpenAIEmbeddings({
     model: "text-embedding-3-small",
 });
 
-// type Row = { content: string };
+type Row = { content: string; distance: number };
 
 export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
@@ -20,23 +24,17 @@ export async function POST(req: Request) {
     }
 
     const userId = session.user.id;
-    const orgId = session.user.organizationId ?? null;
+    const orgId = (session.user as any).organizationId ?? null;
 
     try {
         const { messages, conversationId, chatbotId } = await req.json();
 
-        if (!messages?.length) {
-            return new Response(JSON.stringify({ error: "Mesaj yok" }), {
-                status: 400,
-                headers: { "Content-Type": "application/json" },
-            });
-        }
-        // güvenlik: zorunlu alanlar
+        // Basit validasyon
         if (!chatbotId || !Array.isArray(messages) || messages.length === 0) {
             return NextResponse.json({ error: "Geçersiz istek" }, { status: 400 });
         }
 
-        // bu chatbot gerçekten bu kullanıcıya (ve/veya organizasyona) ait mi?
+        // Bot sahipliği
         const bot = await prisma.chatbot.findFirst({
             where: {
                 id: chatbotId,
@@ -45,57 +43,64 @@ export async function POST(req: Request) {
             },
             select: { id: true, systemPrompt: true, mode: true },
         });
-
         if (!bot) {
-            return NextResponse.json({ error: "Bu bota erişim yok" }, { status: 403 ,headers: { "Content-Type": "application/json" }},);
+            return NextResponse.json({ error: "Bu bota erişim yok" }, { status: 403 });
         }
 
-        const userMessage = messages[messages.length - 1] as { content: string };
-        const queryEmbedding = await embeddings.embedQuery(userMessage.content);
-        const lit = `[${queryEmbedding.join(",")}]`;
+        // Son kullanıcı mesajı
+        const last = messages[messages.length - 1] as { role?: string; content: string };
+        const userMessage = last?.content ?? "";
+        if (!userMessage.trim()) {
+            return NextResponse.json({ error: "Mesaj boş" }, { status: 400 });
+        }
 
-        // 🔎 PGVECTOR TOP-K (JS cosine çöp oldu)
-        const rows = await prisma.$queryRawUnsafe<
-            { content: string; distance: number }[]
-        >(
-            `
-      SELECT "content", ("embeddingVec" <=> ${lit}::vector) AS distance
-      FROM "Document"
-      WHERE "userId" = '${userId}' AND "chatbotId" = '${chatbotId}'
-      ORDER BY "embeddingVec" <=> ${lit}::vector ASC
-      LIMIT 5
-    `
-        );
+        // --- Vektör arama (pgvector) ---
+        const limit = 5;
+        const vector = await embeddings.embedQuery(userMessage); // <-- TANIMLANDI
+        const vecSql = Prisma.raw(`[${vector.join(",")}]`);
 
-        // en iyi bağlamı seç (istersen ilkini al; gerekirse mini rerank kullanabilirsin)
-        const finalContext = rows.length ? rows[0].content : "";
+        const rows = (await prisma.$queryRaw(
+            Prisma.sql`
+        SELECT "content",
+               1 - ("embeddingVec" <=> ${vecSql}::vector) AS distance
+        FROM "Document"
+        WHERE "chatbotId" = ${chatbotId} AND "userId" = ${userId}
+        ORDER BY "embeddingVec" <=> ${vecSql}::vector
+        LIMIT ${limit}
+      `
+        )) as Row[];
+
+        // En iyi bağlam(lar)
+        const topK = rows.map(r => r.content).filter(Boolean);
+        const finalContext = topK.slice(0, 4).join("\n\n---\n\n"); // istersen tekini de alabilirsin: rows[0]?.content ?? ""
 
         const isStrict = bot.mode === "STRICT";
 
-        // Kısa yardımcı: konuşmayı DB’ye yaz ve cevap dön
+        // Konuşmayı kaydedip cevap dönen küçük yardımcı
         let currentConversationId: string | undefined = conversationId;
-        async function persistAndRespond(aiText: string) {
+        const persistAndRespond = async (aiText: string) => {
             if (currentConversationId) {
                 await prisma.conversation.update({
                     where: { id: currentConversationId, userId },
                     data: {
                         messages: {
+                            // JSON[]/JSONB[] alanı için push; gerekirse şemanıza göre ayarlayın
                             push: [
-                                { role: "user", content: userMessage.content },
+                                { role: "user", content: userMessage },
                                 { role: "assistant", content: aiText },
-                            ],
-                        } as any,
+                            ] as any,
+                        },
                     },
                 });
             } else {
                 const created = await prisma.conversation.create({
                     data: {
-                        title: userMessage.content.substring(0, 50),
+                        title: userMessage.substring(0, 50),
                         chatbot: { connect: { id: chatbotId } },
                         messages: [
-                            { role: "user", content: userMessage.content },
+                            { role: "user", content: userMessage },
                             { role: "assistant", content: aiText },
-                        ],
+                        ] as any,
                         user: { connect: { id: userId } },
                     },
                     select: { id: true },
@@ -103,14 +108,13 @@ export async function POST(req: Request) {
                 currentConversationId = created.id;
             }
             return NextResponse.json({
-                text: aiResponseText,
+                text: aiText, // <-- aiResponseText yerine parametreyi kullan
                 conversationId: currentConversationId,
             });
-        }
+        };
+
         if (isStrict && !finalContext) {
-            return await persistAndRespond(
-                "Üzgünüm, bu bilgi yüklediğiniz belgelerde bulunmuyor."
-            );
+            return await persistAndRespond("Üzgünüm, bu bilgi yüklediğiniz belgelerde bulunmuyor.");
         }
 
         const systemPrompt = `
@@ -129,13 +133,11 @@ ${finalContext || "Yok"}
             model: "gpt-4o",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: userMessage.content },
+                { role: "user", content: userMessage },
             ],
         });
 
-        const aiResponseText =
-            completion.choices[0]?.message?.content ?? "Bir sorun oluştu.";
-
+        const aiResponseText = completion.choices[0]?.message?.content ?? "Bir sorun oluştu.";
         return await persistAndRespond(aiResponseText);
     } catch (err) {
         console.error("Chat API hatası:", err);

@@ -1,109 +1,57 @@
+// src/app/api/chatbots/[chatbotId]/route.ts
+
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { getParamFromUrl } from "@/lib/routeParams";
 
-
-// ❗ Prisma sürümünden bağımsız enum tipi:
-const MODES = ["STRICT", "FLEXIBLE"] as const;
-type PromptMode = typeof MODES[number];
-const isMode = (v: unknown): v is PromptMode => MODES.includes(v as PromptMode);
-
-export async function GET(_req: Request) {
-    try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
-            return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-        }
-
-        const userId = session.user.id;
-        const orgId  = session.user.organizationId;
-        const chatbotId = getParamFromUrl(_req, "chatbots");
-
-        const bot = await prisma.chatbot.findFirst({
-            where: { id: chatbotId, userId, organizationId: orgId ?? undefined },
-            select: { id: true, name: true, systemPrompt: true, mode: true, createdAt: true },
-        });
-
-        if (!bot) {
-            return NextResponse.json({ error: "Chatbot bulunamadı" }, { status: 404 });
-        }
-
-        return NextResponse.json(bot);
-    } catch (err) {
-        console.error("Chatbot GET hatası:", err);
-        return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });
+// Belirli bir chatbot'u silmek için DELETE fonksiyonu
+export async function DELETE(
+    req: Request,
+    { params }: { params: { chatbotId: string } }
+) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+        return NextResponse.json({ error: "Yetkisiz erişim." }, { status: 401 });
     }
-}
+    const userId = session.user.id;
+    const { chatbotId } = params;
 
-export async function PATCH(req: Request) {
+    if (!chatbotId) {
+        return NextResponse.json({ error: "Chatbot ID gerekli." }, { status: 400 });
+    }
+
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
-            return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-        }
-        if (session.user.role !== "ADMIN") {
-            return NextResponse.json({ error: "İzin yok" }, { status: 403 });
-        }
-
-        const orgId  = session.user.organizationId;
-        const chatbotId = getParamFromUrl(req, "chatbots");
-        const { name, systemPrompt, mode } = await req.json();
-
-        // önce aynı org’a ait mi diye doğrula
-        const existing = await prisma.chatbot.findFirst({
-            where: { id: chatbotId, organizationId: orgId ?? undefined },
-            select: { id: true },
-        });
-        if (!existing) {
-            return NextResponse.json({ error: "Chatbot bulunamadı" }, { status: 404 });
-        }
-
-        const updated = await prisma.chatbot.update({
-            where: { id: chatbotId },
-            data: {
-                name: typeof name === "string" && name.trim() ? name.trim() : undefined,
-                systemPrompt: typeof systemPrompt === "string" ? systemPrompt.trim() : undefined,
-                mode: isMode(mode) ? mode : undefined, // sadece geçerliyse güncelle
+        // İlk olarak, silinmek istenen chatbot'un bu kullanıcıya ait olduğunu doğrula.
+        // Bu, başkasının chatbot'unu silmeyi engeller.
+        const chatbot = await prisma.chatbot.findFirst({
+            where: {
+                id: chatbotId,
+                userId: userId,
             },
-            select: { id: true, name: true, systemPrompt: true, mode: true },
         });
 
-        return NextResponse.json(updated);
-    } catch (err) {
-        console.error("Chatbot PATCH hatası:", err);
-        return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });
-    }
-}
-
-export async function DELETE(_req: Request) {
-    try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
-            return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-        }
-        if (session.user.role !== "ADMIN") {
-            return NextResponse.json({ error: "İzin yok" }, { status: 403 });
+        if (!chatbot) {
+            return NextResponse.json({ error: "Chatbot bulunamadı veya bu işlem için yetkiniz yok." }, { status: 404 });
         }
 
-        const orgId = session.user.organizationId;
-        const chatbotId = getParamFromUrl(_req, "chatbots");
+        // İki silme işlemini aynı anda ve güvenli bir şekilde yapmak için transaction kullanıyoruz.
+        // Bu sayede ya ikisi de başarılı olur, ya da bir hata olursa ikisi de geri alınır.
+        await prisma.$transaction([
+            // 1. Önce bu chatbot'a ait tüm belgeleri sil.
+            prisma.document.deleteMany({
+                where: { chatbotId: chatbotId },
+            }),
+            // 2. Sonra chatbot'un kendisini sil.
+            prisma.chatbot.delete({
+                where: { id: chatbotId },
+            }),
+        ]);
 
-        // aynı org’a mı ait?
-        const bot = await prisma.chatbot.findFirst({
-            where: { id: chatbotId, organizationId: orgId ?? undefined },
-            select: { id: true },
-        });
-        if (!bot) {
-            return NextResponse.json({ error: "Chatbot bulunamadı" }, { status: 404 });
-        }
+        return NextResponse.json({ message: "Chatbot ve ilişkili belgeler başarıyla silindi." });
 
-        // ilişkili conversation/document’lar için prisma şemasında onDelete: Cascade tanımlı olmalı
-        await prisma.chatbot.delete({ where: { id: chatbotId } });
-        return NextResponse.json({ success: true });
-    } catch (err) {
-        console.error("Chatbot DELETE hatası:", err);
-        return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });
+    } catch (error) {
+        console.error("Chatbot silme hatası:", error);
+        return NextResponse.json({ error: "Sunucuda bir hata oluştu." }, { status: 500 });
     }
 }

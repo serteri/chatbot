@@ -16,18 +16,41 @@ interface Props {
 
 export default function ConversationList({ chatbotId, onSelect, selectedId }: Props) {
     const [conversations, setConversations] = useState<Conversation[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        if (!chatbotId) return;
-        setLoading(true);
-        fetch(`/api/conversations?chatbotId=${chatbotId}`)
-            .then(res => res.json())
-            .then(data => setConversations(data));
-    }, [chatbotId]);
+        // Eğer bir chatbotId yoksa, istek gönderme.
+        if (!chatbotId) {
+            setIsLoading(false);
+            return;
+        }
+
+        const fetchConversations = async () => {
+            setIsLoading(true);
+            try {
+                // Bu chatbot'a ait konuşmaları çeken API'yi çağır
+                const res = await fetch(`/api/chatbots/${chatbotId}/conversations`);
+                if (!res.ok) {
+                    throw new Error("Konuşmalar yüklenemedi.");
+                }
+                const data = await res.json();
+                setConversations(data);
+            } catch (error) {
+                console.error(error);
+                setConversations([]); // Hata durumunda listeyi boşalt
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchConversations();
+    }, [chatbotId]); // chatbotId her değiştiğinde bu fonksiyon yeniden çalışır
 
 
-    if (!conversations.length) return <div>Henüz sohbet yok.</div>;
+    if (isLoading) {
+        return <div className="space-y-2"><div className="skeleton h-8 w-full"></div><div className="skeleton h-8 w-full"></div></div>;
+    }
+    if (!conversations.length===0) return <div>Henüz sohbet yok.</div>;
 
     return (
         <ul className="space-y-1">

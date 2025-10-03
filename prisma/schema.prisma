@@ -74,6 +74,7 @@ model User {
   hashedPassword     String?
   role               Role           @default(USER)
   plan               Plan           @default(FREE)
+  trialEndsAt        DateTime? // Deneme süresinin ne zaman biteceği (opsiyonel)
   onboardingComplete Boolean        @default(false)
   organizationId     String?
   accounts           Account[]
@@ -117,6 +118,7 @@ model Document {
   createdAt    DateTime               @default(now())
   chatbot      Chatbot                @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
   user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt    DateTime               @updatedAt
 
   @@index([userId, chatbotId, fileName])
 }
@@ -159,4 +161,5 @@ enum Role {
 enum Plan {
   FREE
   PRO
+  ENTERPRISE
 }

@@ -1,0 +1,24 @@
+{
+  "Navbar": {
+    "about": "Hakkımızda",
+    "pricing": "Fiyatlandırma",
+    "faq": "SSS",
+    "contact": "İletişim",
+    "demo": "Demo",
+    "conversations": "Konuşmalar",
+    "admin": "Yönetici",
+    "startChat": "Sohbeti Başlat",
+    "signIn": "Giriş Yap",
+    "signOut": "Çıkış Yap",
+    "dashboard": "Pano",
+    "welcome": "Hoş Geldiniz",
+    "trialEnds": "Deneme {days} gün içinde sona eriyor.",
+    "trialOver": "Deneme süresi sona erdi."
+  },
+  "HomePage": {
+    "title": "Kendi AI Sohbet Robotunuzu Dakikalar İçinde Oluşturun",
+    "subtitle": "Belgelerinizi yükleyin ve verileriniz için ChatGPT benzeri bir sohbet robotu elde edin. Web sitenize gömün veya dahili olarak kullanın.",
+    "getStarted": "Ücretsiz Başlayın",
+    "viewDemo": "Demo Görüntüle"
+  }
+}

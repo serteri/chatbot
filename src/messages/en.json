@@ -1,0 +1,25 @@
+{
+  "Navbar": {
+    "about": "About Us",
+    "pricing": "Pricing",
+    "faq": "FAQ",
+    "contact": "Contact",
+    "demo": "Demo",
+    "conversations": "Conversations",
+    "admin": "Admin",
+    "startChat": "Start Chat",
+    "signIn": "Sign In",
+    "signOut": "Sign Out",
+    "dashboard": "Dashboard",
+    "welcome": "Welcome",
+    "trialEnds": "Trial ends in {days} days.",
+    "trialOver": "Trial has ended."
+  },
+  "HomePage": {
+    "title": "Build Your Own AI Chatbot in Minutes",
+    "subtitle": "Upload your documents, and get a ChatGPT-like chatbot for your data. Embed it on your website or use it internally.",
+    "getStarted": "Get Started for Free",
+    "viewDemo": "View Demo"
+  }
+}
+
