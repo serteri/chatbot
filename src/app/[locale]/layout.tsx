@@ -1,6 +1,6 @@
 import { Inter } from 'next/font/google';
 import { getMessages } from 'next-intl/server';
-import Providers from '@/components/Providers';
+import Providers from '@/components/provider';
 import Navbar from '@/components/Navbar';
 import './globals.css';
 
