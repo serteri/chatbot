@@ -1,12 +1,14 @@
-import { createInstance } from 'next-intl';
-import { NextRequest } from 'next/server';
+import {notFound} from 'next/navigation';
+import {getRequestConfig} from 'next-intl/server';
 
-export default async function getI18n(request: NextRequest) {
-    const locale = request.headers.get('locale') || 'en';
-    const i18n = createInstance();
-    await i18n.init({
-        locale,
-        messages: (await import(`./messages/${locale}.json`)).default,
-    });
-    return i18n;
-}
+// Desteklenen dillerin listesi
+const locales = ['en', 'tr'];
+
+export default getRequestConfig(async ({locale}) => {
+    // Gelen 'locale' parametresinin desteklenen dillerden biri olduğunu doğrula
+    if (!locales.includes(locale as any)) notFound();
+
+    return {
+        messages: (await import(`./messages/${locale}.json`)).default
+    };
+});
